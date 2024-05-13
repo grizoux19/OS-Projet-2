@@ -9,9 +9,10 @@
 #include <linux/mm.h>
 #include <linux/slab.h>:
 #include <linux/seq_file.h>
-
+#include <linux/sched/mm.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
+#include <linux/ksm.h>
 
 #define PROC_NAME "module_info0940"
 #define MAX_PROCESS_NAME_LEN 256
@@ -24,17 +25,17 @@ struct process_info *info;
 static int num_processes = 0;
 
 struct process_info {
-    pid_t pid;
+    pid_t *pid;
     unsigned long total_pages;
     unsigned long valid_pages;
     unsigned long invalid_pages;
     unsigned long readonly_pages;
     unsigned int identical_page_groups;
     char name[255];
-    unsigned int number;
 };
 
 static void retrieve_process_info(void);
+static void detect_identical_pages(void);
 
 
 static char proc_buffer[1024]; // Tampon pour stocker les données du fichier proc
@@ -146,37 +147,24 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     if (strncmp(proc_buffer, "ALL", 3) == 0) {
         printk(KERN_INFO "Je suis dans le all\n");
         printk(KERN_INFO "Nombre de processus : %d\n", num_processes);
-        int i;
+        int i,j;
 
         size_t bytes_written = 0;
         ssize_t ret;
         for(i = 0; i < num_processes; i++) {
-            //seq_printf(seq_file, "[%lu] PID: %d, Nom: %s Total pages : %lu Valide Page : %lu Invalid page : %lu \n",
-                   //jiffies, info[i].pid, info[i].name, info[i].total_pages, info[i].valid_pages, info[i].invalid_pages);
-
-            ret = snprintf(kernel_buffer, sizeof(kernel_buffer),"Bonjour \n");
-
-            if (ret < 0 || ret >= sizeof(kernel_buffer)) {
-                printk(KERN_ERR "Erreur lors du formatage de la chaîne de caractères\n");
-                return ret;
-            }
-
-            // Écriture dans le fichier
-            ret = vfs_write(file, kernel_buffer, ret, pos);
-            if (ret < 0) {
-                printk(KERN_ERR "Erreur lors de l'écriture dans le fichier\n");
-            }
-
             
             printk(KERN_INFO "PID: %d, Nom: %s\n", info[i].pid, info[i].name);
 
-            int len = snprintf(proc_buffer + bytes_written, sizeof(proc_buffer) - bytes_written, "[%lu] PID: %d, Nom: %s Total pages : %lu Valide Page : %lu Invalid page : %lu \n", jiffies, info[i].pid, info[i].name, info[i].total_pages, info[i].valid_pages, info[i].invalid_pages);
-            // Vérifie si la longueur formatée dépasse la taille du tampon
-            if (len >= sizeof(proc_buffer) - bytes_written) {
-                printk(KERN_ALERT "Tampon de sortie trop petit pour écrire toutes les informations sur les processus\n");
-                return -ENOMEM;
+            for (j = 0; j < info[i].identical_page_groups; j++) {
+                printk(KERN_INFO "PID(%d): %d\n", j+1, info[i].pid[j]);
             }
-            bytes_written += len;
+            //int len = snprintf(proc_buffer + bytes_written, sizeof(proc_buffer) - bytes_written, "[%lu] PID: %d, Nom: %s Total pages : %lu Valide Page : %lu Invalid page : %lu \n", jiffies, info[i].pid, info[i].name, info[i].total_pages, info[i].valid_pages, info[i].invalid_pages);
+            // Vérifie si la longueur formatée dépasse la taille du tampon
+            //if (len >= sizeof(proc_buffer) - bytes_written) {
+            //    printk(KERN_ALERT "Tampon de sortie trop petit pour écrire toutes les informations sur les processus\n");
+            //    return -ENOMEM;
+            //}
+            //bytes_written += len;
         }
         count = bytes_written;
         *pos += count;
@@ -229,43 +217,124 @@ static void retrieve_process_info(void) {
     num_processes = 0;
     // Parcourir la liste des processus
     for_each_process(task) {
-        // Allouer de la mémoire pour stocker les informations sur le processus
-        if (num_processes == 0) {
-            info = kmalloc(sizeof(struct process_info), GFP_KERNEL);
-        } else {
-            struct process_info *temp = kmalloc((num_processes + 1) * sizeof(struct process_info), GFP_KERNEL);
-            if (!temp) {
-                // Gestion de l'échec de l'allocation
+        int i;
+        int found = 0;
+        
+        // Vérifier si le nom du processus existe déjà dans la structure
+        for (i = 0; i < num_processes; i++) {
+            if (strcmp(task->comm, info[i].name) == 0) {
+                // Le nom du processus existe déjà, mettre à jour les valeurs
+                info[i].total_pages += task->mm->total_vm;
+                info[i].valid_pages += task->mm->total_vm - task->mm->data_vm;
+                info[i].invalid_pages += task->mm->total_vm - get_mm_rss(task->mm);
+                // Ajouter le PID au tableau dynamique
+                info[i].pid = krealloc(info[i].pid, (info[i].identical_page_groups + 1) * sizeof(pid_t), GFP_KERNEL);
+                if (!info[i].pid) {
+                    printk(KERN_ALERT "Échec de l'allocation de mémoire\n");
+                    return;
+                }
+                info[i].pid[info[i].identical_page_groups + 1] = task->pid;
+                info[i].identical_page_groups++;
+                found = 1;
+                printk(KERN_INFO "Il y a un process en double le voici -> PID: %d, Nom: %s \n", info[i].pid[info[i].identical_page_groups], info[i].name);
+                printk(KERN_INFO "Process auquel il se rapporte : %d  \n", info[i].pid[0]);
+
+                break;
+            }
+        }
+        
+        if (!found) {
+            // Le nom du processus n'existe pas encore, ajouter une nouvelle entrée
+            if (!info) {
+                info = kmalloc(sizeof(struct process_info), GFP_KERNEL);
+            } else {
+                struct process_info *temp = krealloc(info, (num_processes + 1) * sizeof(struct process_info), GFP_KERNEL);
+                if (!temp) {
+                    printk(KERN_ALERT "Échec de l'allocation de mémoire\n");
+                    return;
+                }
+                info = temp;
+            }
+            strncpy(info[num_processes].name, task->comm, sizeof(info[num_processes].name) - 1);
+
+            struct mm_struct *mm = task->mm;
+            if (mm != NULL) {
+                info[num_processes].total_pages = mm->total_vm;
+                info[num_processes].valid_pages = mm->total_vm - mm->data_vm;
+                info[num_processes].invalid_pages = mm->total_vm - get_mm_rss(mm);
+                //total_pages_used += info[num_processes].total_pages; // Ajouter au total des pages utilisées
+            } else {
+                info[num_processes].total_pages = 0;
+                info[num_processes].valid_pages = 0;
+                info[num_processes].invalid_pages = 0;
+            }
+
+            info[num_processes].readonly_pages = 0; // À implémenter si nécessaire
+            info[num_processes].identical_page_groups = 0; // À implémenter si nécessaire
+            info[num_processes].pid = kmalloc(sizeof(pid_t), GFP_KERNEL);
+            if (!info[num_processes].pid) {
                 printk(KERN_ALERT "Échec de l'allocation de mémoire\n");
                 return;
             }
-            memcpy(temp, info, num_processes * sizeof(struct process_info));
-            kfree(info);
-            info = temp;
+            info[num_processes].pid[0] = task->pid;
+            num_processes++;
+
+            printk(KERN_INFO "PID: %d, Nom: %s Total pages : %lu Valide Page : %lu Invalid page : %lu \n", info[num_processes - 1].pid[0], info[num_processes - 1].name, info[num_processes - 1].total_pages, info[num_processes - 1].valid_pages, info[num_processes - 1].invalid_pages);
         }
-
-        // Remplir les informations sur le processus
-        info[num_processes].pid = task->pid;
-        strncpy(info[num_processes].name, task->comm, sizeof(info[num_processes].name) - 1);
-
-        struct mm_struct *mm = task->mm;
-        if (mm != NULL) {
-            info[num_processes].total_pages = mm->total_vm;
-            info[num_processes].valid_pages = mm->total_vm - mm->data_vm;
-            info[num_processes].invalid_pages = mm->total_vm - get_mm_rss(mm);
-            //total_pages_used += info[num_processes].total_pages; // Ajouter au total des pages utilisées
-        } else {
-            info[num_processes].total_pages = 0;
-            info[num_processes].valid_pages = 0;
-            info[num_processes].invalid_pages = 0;
-        }
-
-        num_processes++;
-
-        // Afficher les informations sur le processus
-        printk(KERN_INFO "PID: %d, Nom: %s Total pages : %d Valide Page : %d Invalid page : %d \n", info[num_processes - 1].pid, info[num_processes - 1].name, info[num_processes - 1].total_pages, info[num_processes - 1].valid_pages, info[num_processes - 1].invalid_pages);
     }
-    printk(KERN_INFO "Nombre de processus récupérés : %d \n", num_processes);
+
+    printk(KERN_INFO "OK CEST FINIIIIIIIIIIIIIIIIIIIIIIII \n");
+
+    int i,j;
+
+    for(i = 0; i < num_processes; i++) {
+        
+        printk(KERN_INFO "PID: %d, Nom: %s\n", info[i].pid[0], info[i].name);
+
+        for (j = 1; j <= info[i].identical_page_groups; j++) {
+            printk(KERN_INFO "PID identique %d: %d\n", j, info[i].pid[j]);
+        }
+    }
+}
+
+void detect_identical_pages(){
+    int i,j,k;
+
+    for(i = 0; i < num_processes; i++) {
+        struct mm_struct *mm1 = NULL;
+        struct mm_struct *mm2 = NULL;
+        struct vm_area_struct *vma1, *vma2;
+        struct task_struct *task;
+
+        task = pid_task(find_vpid(info[i].pid[0]), PIDTYPE_PID); //On récupère le premier PID
+        if(task) {
+            mm1 = get_task_mm(task);
+            if(mm1) {
+                for (vma1 = mm1->mmap; vma1; vma1 = vma1->vm_next) {
+                    if (vma1->vm_flags & VM_READ) { //Si on est en lecture
+                        for(j = 1; j <= info[i].identical_page_groups; j++) { //Si on a plusieurs PID ou le même
+                            task = pid_task(find_vpid(info[i].pid[j]), PIDTYPE_PID);
+                            if(task) {
+                                mm2 = get_task_mm(task);
+                                if(mm2) {
+                                    for (vma2 = mm2->mmap; vma2; vma2 = vma2->vm_next) {
+                                        if (vma2->vm_flags & VM_READ) {
+                                            if (vma1->vm_start == vma2->vm_start && vma1->vm_end == vma2->vm_end) {
+                                                printk(KERN_INFO "Les pages sont identiques avec le PID : %d et le PID : %d \n", info[i].pid[0], info[i].pid[j]);
+                                            }
+                                        }
+                                    }
+                                    mmput(mm2);
+                                }
+                            }
+                        }
+                    }
+                }
+                mmput(mm1);
+            }
+        }
+
+    }
 }
 // Fonction d'initialisation du module
 static int __init process_info_init(void) {
@@ -277,6 +346,9 @@ static int __init process_info_init(void) {
 
     // Récupérer les informations sur les processus lors de l'initialisation
     retrieve_process_info();
+
+    //Pages identical 
+    detect_identical_pages();
 
     printk(KERN_INFO "Module de test du fichier proc initialisé\n");
     return 0;
