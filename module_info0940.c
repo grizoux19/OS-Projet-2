@@ -136,6 +136,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     }
     if (strncmp(proc_buffer, "DEL", 3) == 0) {
         printk(KERN_INFO "Je suis dans le delete\n");
+        bool delete_success = false;
         // Efface le contenu précédent du fichier proc
         char process_name[MAX_PROCESS_NAME_LEN];
         // Trouver le premier '|' dans proc_buffer
@@ -158,9 +159,15 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
 
                 memmove(&info[i], &info[i + 1], (num_processes - i - 1) * sizeof(struct process_info));
                 // Décrémenter le nombre total de processus
+                delete_success = true;
                 num_processes--;
                 break; // Sortir de la boucle une fois que le processus est supprimé
             }
+        }
+        if (delete_success) {
+            snprintf(proc_buffer, sizeof(proc_buffer), "success\n");
+        } else {
+            snprintf(proc_buffer, sizeof(proc_buffer), "error\n");
         }
     }
     if (strncmp(proc_buffer, "ALL", 3) == 0) {
