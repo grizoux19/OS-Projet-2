@@ -156,20 +156,16 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
                     filter_success = true;
                     snprintf(proc_buffer, sizeof(proc_buffer), process_info);
                 }
-                else
-                {
-                    printk(KERN_INFO "Aucun process trouvé \n");
-                }
             }
         }
 
         if(!filter_success){
-            snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]\n");
+            snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]: No such process\n");
         }
 
         // Renvoie la longueur de la chaîne "Bonjour" comme le nombre d'octets écrit
     }
-    if (strncmp(proc_buffer, "DEL", 3) == 0)
+    else if (strncmp(proc_buffer, "DEL", 3) == 0)
     {
         pipe_position = strchr(proc_buffer, '|');
 
@@ -213,7 +209,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]\n");
         }
     }
-    if (strncmp(proc_buffer, "ALL", 3) == 0)
+    else if (strncmp(proc_buffer, "ALL", 3) == 0)
     {
         char *process_info = kmalloc(4096 * sizeof(char), GFP_KERNEL);
         printk(KERN_INFO "Nombre de processus : %d\n", num_processes);
@@ -232,7 +228,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             }
         }
     }
-    if (strncmp(proc_buffer, "RESET", 3) == 0)
+    else if (strncmp(proc_buffer, "RESET", 5) == 0)
     {
         kfree(info);
         info = NULL;
@@ -240,6 +236,9 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
         memset(proc_buffer, '\0', sizeof(proc_buffer));
 
         printk(KERN_INFO "Reset fini");
+    }
+    else{
+        snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]: Invalid argument\n");
     }
 
     // Renvoie le nombre d'octets écrits
