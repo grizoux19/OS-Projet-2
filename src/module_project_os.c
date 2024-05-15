@@ -245,7 +245,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
         retrieve_process_info();
         detect_identical_pages();
         memset(proc_buffer, '\0', sizeof(proc_buffer));
-
+        snprintf(proc_buffer, sizeof(proc_buffer), "[SUCCESS]\n");
         printk(KERN_INFO "Reset fini");
         
     }
