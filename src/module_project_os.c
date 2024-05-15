@@ -61,7 +61,7 @@ void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_siz
     // buf_pttr + offset ->popinteur vers la position actuel
     // sizeof(buffer) - offset -> espace restant dans le buffer
     offset += snprintf(buffer + offset, buffer_size - offset,
-                       "%s, total: %lu, valid: %lu, invalid: %lu, maybe shared: %lu, nb group: %lu, pid(%lu): ",
+                       "%s, total: %lu, valid: %lu, invalid: %lu, may_be_shared: %lu, nb_group: %lu, pid(%lu): ",
                        info[index].name, info[index].total_pages, info[index].valid_pages,
                        info[index].invalid_pages, info[index].may_be_shared,
                        info[index].nb_group, info[index].identical_page_groups + 1);
