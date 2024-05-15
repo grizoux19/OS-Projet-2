@@ -267,9 +267,10 @@ static void retrieve_process_info(void)
             if (strcmp(task->comm, info[i].name) == 0)
             {
                 // Le nom du processus existe déjà, mettre à jour les valeurs
-                info[i].total_pages += task->mm->total_vm;
-                info[i].valid_pages += task->mm->total_vm - task->mm->data_vm;
-                info[i].invalid_pages += task->mm->total_vm - get_mm_rss(task->mm);
+                info[i].total_pages = task->mm->total_vm;
+                info[i].valid_pages = get_mm_rss(task->mm);
+                info[i].invalid_pages = info[i].total_pages - info[i].valid_pages;
+
                 // Ajouter le PID au tableau dynamique
                 info[i].pid = krealloc(info[i].pid, (info[i].identical_page_groups + 1) * sizeof(pid_t), GFP_KERNEL);
                 if (!info[i].pid)
