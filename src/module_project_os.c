@@ -61,7 +61,7 @@ void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_siz
     // buf_pttr + offset ->popinteur vers la position actuel
     // sizeof(buffer) - offset -> espace restant dans le buffer
     offset += snprintf(buffer + offset, buffer_size - offset,
-                       "%s, total: %lu, valid: %lu, invalid: %lu, maybe shared: %lu, nb group: %lu, pid(%lu): ",
+                       "%s, total: %lu, valid: %lu, invalid: %lu, may_be_shared: %lu, nb_group: %lu, pid(%lu): ",
                        info[index].name, info[index].total_pages, info[index].valid_pages,
                        info[index].invalid_pages, info[index].may_be_shared,
                        info[index].nb_group, info[index].identical_page_groups + 1);
@@ -156,20 +156,16 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
                     filter_success = true;
                     snprintf(proc_buffer, sizeof(proc_buffer), process_info);
                 }
-                else
-                {
-                    printk(KERN_INFO "Aucun process trouvé \n");
-                }
             }
         }
 
         if(!filter_success){
-            snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]\n");
+            snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]: No such process\n");
         }
 
         // Renvoie la longueur de la chaîne "Bonjour" comme le nombre d'octets écrit
     }
-    if (strncmp(proc_buffer, "DEL", 3) == 0)
+    else if (strncmp(proc_buffer, "DEL", 3) == 0)
     {
         pipe_position = strchr(proc_buffer, '|');
 
@@ -213,7 +209,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]\n");
         }
     }
-    if (strncmp(proc_buffer, "ALL", 3) == 0)
+    else if (strncmp(proc_buffer, "ALL", 3) == 0)
     {
         char *process_info = kmalloc(4096 * sizeof(char), GFP_KERNEL);
         printk(KERN_INFO "Nombre de processus : %d\n", num_processes);
@@ -232,7 +228,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             }
         }
     }
-    if (strncmp(proc_buffer, "RESET", 3) == 0)
+    else if (strncmp(proc_buffer, "RESET", 5) == 0)
     {
         if (info != NULL) {
         // Libérer la mémoire allouée pour chaque tableau de PID
@@ -252,6 +248,9 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
 
         printk(KERN_INFO "Reset fini");
         
+    }
+    else{
+        snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]: Invalid argument\n");
     }
 
     // Renvoie le nombre d'octets écrits
@@ -309,9 +308,9 @@ static void retrieve_process_info(void)
             if (strcmp(task->comm, info[i].name) == 0)
             {
                 // Le nom du processus existe déjà, mettre à jour les valeurs
-                info[i].total_pages = task->mm->total_vm;
-                info[i].valid_pages = get_mm_rss(task->mm);
-                info[i].invalid_pages = info[i].total_pages - info[i].valid_pages;
+                info[i].total_pages += task->mm->total_vm;
+                info[i].valid_pages += get_mm_rss(task->mm);
+                info[i].invalid_pages += info[i].total_pages - info[i].valid_pages;
 
                 // Ajouter le PID au tableau dynamique
                 info[i].pid = krealloc(info[i].pid, (info[i].identical_page_groups + 1) * sizeof(pid_t), GFP_KERNEL);
@@ -353,8 +352,8 @@ static void retrieve_process_info(void)
             if (mm != NULL)
             {
                 info[num_processes].total_pages = mm->total_vm;
-                info[num_processes].valid_pages = mm->total_vm - mm->data_vm;
-                info[num_processes].invalid_pages = mm->total_vm - get_mm_rss(mm);
+                info[i].valid_pages = get_mm_rss(mm);
+                info[i].invalid_pages = info[i].total_pages - info[i].valid_pages;
                 // total_pages_used += info[num_processes].total_pages; // Ajouter au total des pages utilisées
             }
             else
@@ -627,7 +626,7 @@ void detect_identical_pages()
                                                         else
                                                         {
                                                             // Gestion de l'erreur de réallocation de mémoire
-                                                            printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages :  %d \n", temp);
+                                                            printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages\n");
                                                             // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
                                                         }
                                                     }
