@@ -72,7 +72,7 @@ void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_siz
     offset += snprintf(buffer + offset, buffer_size - offset,
                        "%s, total: %lu, valid: %lu, invalid: %lu, maybe shared: %lu, nb group: %d, pid(%d): ",
                        info[index].name, info[index].total_pages, info[index].valid_pages,
-                       info[index].invalid_pages, info[index].readonly_pages,
+                       info[index].invalid_pages, info[index].may_be_shared,
                        info[index].identical_page_groups, info[index].identical_page_groups + 1);
     for (j = 0; j <= info[index].identical_page_groups; j++)
     {
