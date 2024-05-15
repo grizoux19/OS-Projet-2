@@ -226,6 +226,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     if (strncmp(proc_buffer, "RESET", 3) == 0)
     {
         kfree(info);
+        info = NULL;
         retrieve_process_info();
         memset(proc_buffer, '\0', sizeof(proc_buffer));
 
@@ -506,7 +507,7 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                                 else
                                 {
                                     // Gestion de l'erreur de réallocation de mémoire
-                                    printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages\n",);
+                                    printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages\n");
                                     // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
                                 }
                             }
