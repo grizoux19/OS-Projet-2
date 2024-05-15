@@ -7,7 +7,7 @@
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/mm.h>
-#include <linux/slab.h>:
+#include <linux/slab.h>
 #include <linux/seq_file.h>
 #include <linux/sched/mm.h>
 #include <linux/fs.h>
@@ -37,7 +37,7 @@ struct process_info
     unsigned long valid_pages; 
     unsigned long invalid_pages;
     unsigned long nb_group;
-    unsigned int identical_page_groups;
+    unsigned long identical_page_groups;
     unsigned long may_be_shared;
     char name[255];
 };
@@ -59,7 +59,6 @@ static char kernel_buffer[1024];
 
 void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_size)
 {
-    struct task_struct *task;
     int offset = 0;
     bool find = false;
 
@@ -69,7 +68,7 @@ void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_siz
     // buf_pttr + offset ->popinteur vers la position actuel
     // sizeof(buffer) - offset -> espace restant dans le buffer
     offset += snprintf(buffer + offset, buffer_size - offset,
-                       "%s, total: %lu, valid: %lu, invalid: %lu, maybe shared: %lu, nb group: %d, pid(%d): ",
+                       "%s, total: %lu, valid: %lu, invalid: %lu, maybe shared: %lu, nb group: %lu, pid(%lu): ",
                        info[index].name, info[index].total_pages, info[index].valid_pages,
                        info[index].invalid_pages, info[index].may_be_shared,
                        info[index].nb_group, info[index].identical_page_groups + 1);
@@ -126,8 +125,8 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
         if (pipe_position != NULL && *(pipe_position + 1) != '\0' && *(pipe_position + 1) != '\n')
         {
             // Copy characters after '|' until newline or null terminator
-            int i = 0;
-            for (i; i < MAX_PROCESS_NAME_LEN - 1; i++)
+            int i;
+            for (i = 0; i < MAX_PROCESS_NAME_LEN - 1; i++)
             {
                 if (pipe_position[i + 1] == '\n' || pipe_position[i + 1] == '\0')
                 {
@@ -148,7 +147,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             return -EINVAL;
         }
         printk(KERN_INFO "Process name: %s\n", process_name);
-        size_t len = strlen(process_name);
 
         size_t i;
         for (i = 0; i < num_processes; i++)
@@ -174,7 +172,8 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     if (strncmp(proc_buffer, "DEL", 3) == 0)
     {
         printk(KERN_INFO "Je suis dans le delete\n");
-        bool delete_success = false;
+        bool delete_success;
+        delete_success = false;
         // Efface le contenu précédent du fichier proc
         char process_name[MAX_PROCESS_NAME_LEN];
         // Trouver le premier '|' dans proc_buffer
@@ -196,7 +195,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             if (strncmp(info[i].name, proc_buffer, proc_buffer_length) == 0 && strlen(info[i].name) == proc_buffer_length)
             {
                 // Supprimer le processus trouvé en décalant les éléments suivants dans le tableau
-                printk(KERN_INFO "Processus trouvé : PID = %d, Nom = %s\n", info[i].pid, info[i].name);
+                printk(KERN_INFO "Processus trouvé : PID = %d, Nom = %s\n", info[i].pid[0], info[i].name);
 
                 memmove(&info[i], &info[i + 1], (num_processes - i - 1) * sizeof(struct process_info));
                 // Décrémenter le nombre total de processus
