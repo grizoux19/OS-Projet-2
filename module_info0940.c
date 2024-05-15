@@ -35,8 +35,9 @@ struct process_info {
     unsigned long total_pages;
     unsigned long valid_pages;
     unsigned long invalid_pages;
-    unsigned long readonly_pages;
+    unsigned long nb_group;
     unsigned int identical_page_groups;
+    unsigned long may_be_shared ;
     char name[255];
 };
 
@@ -79,7 +80,7 @@ void retrieve_processes_by_name(const char *name) {
             offset += snprintf(buf_ptr + offset, sizeof(buffer) - offset,
                                "%s, total: %lu, valid: %lu, invalid: %lu, maybe shared: %lu, nb group: %d, pid(%d): ",
                                info[i].name, info[i].total_pages, info[i].valid_pages,
-                               info[i].invalid_pages, info[i].readonly_pages,
+                               info[i].invalid_pages, info[i].nb_group,
                                info[i].identical_page_groups, info[i].identical_page_groups + 1);
             for (j = 0; j <= info[i].identical_page_groups; j++) {
                 offset += snprintf(buf_ptr + offset, sizeof(buffer) - offset, "%d", info[i].pid[j]);
@@ -198,7 +199,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             offset += snprintf(buffer + offset, sizeof(buffer) - offset,
                             "%s, total: %lu, valid: %lu, invalid: %lu, maybe shared: %lu, nb group: %d, pid(%d): ",
                             info[i].name, info[i].total_pages, info[i].valid_pages,
-                            info[i].invalid_pages, info[i].readonly_pages,
+                            info[i].invalid_pages, info[i].nb_group,
                             info[i].identical_page_groups, info[i].identical_page_groups + 1);
             for (j = 0; j <= info[i].identical_page_groups; j++) {
                 offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%d", info[i].pid[j]);
@@ -331,7 +332,7 @@ static void retrieve_process_info(void) {
                 info[num_processes].invalid_pages = 0;
             }
 
-            info[num_processes].readonly_pages = 0; // À implémenter si nécessaire
+            info[num_processes].nb_group = 0; // À implémenter si nécessaire
             info[num_processes].identical_page_groups = 0; // À implémenter si nécessaire
             info[num_processes].pid = kmalloc(sizeof(pid_t), GFP_KERNEL);
             if (!info[num_processes].pid) {
@@ -564,6 +565,28 @@ out_unmap:
     return result;
 }
 
+void compare_pages_within_process(struct mm_struct *mm, int index) {
+    struct vm_area_struct *vma1, *vma2;
+
+    for (vma1 = mm->mmap; vma1; vma1 = vma1->vm_next) {
+        if (vma1->vm_flags & VM_READ) { // Si on peut lire
+            struct page *page1 = get_page_by_vaddr(mm, vma1->vm_start);
+            for (vma2 = vma1->vm_next; vma2; vma2 = vma2->vm_next) {
+                if (vma2->vm_flags & VM_READ) {
+                    struct page *page2 = get_page_by_vaddr(mm, vma2->vm_start);
+                    if (page1 && page2) {
+                        int result = compare_pages(page1, page2);
+                        if (result == 1) {
+                            printk(KERN_INFO "Les pages sont identiques dans le même processus.\n");
+                            info[index].may_be_shared++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 void detect_identical_pages() {
     int i, j;
     for (i = 0; i < num_processes; i++) {
@@ -577,6 +600,7 @@ void detect_identical_pages() {
         if (task) {
             mm1 = get_task_mm(task);
             if (mm1) {
+                compare_pages_within_process(mm1,i);
                 for (vma1 = mm1->mmap; vma1; vma1 = vma1->vm_next) {
                     if (vma1->vm_flags & VM_READ) { // Si on peut lire
                         for (j = 1; j <= info[i].identical_page_groups; j++) {
@@ -593,6 +617,7 @@ void detect_identical_pages() {
                                                 result = compare_pages(page1, page2);
                                                 if (result == 1) {
                                                     printk(KERN_INFO "NEW Les pages sont identiques avec le PID : %d et le PID : %d \n", info[i].pid[0], info[i].pid[j]);
+                                                    info[i].may_be_shared++;
                                                 }
                                             }
                                         }
