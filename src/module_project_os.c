@@ -20,7 +20,7 @@
 #include <linux/sched/task.h>
 #include <linux/mm_types.h>
 
-#define PROC_NAME "module_project_os"
+#define PROC_NAME "memory_info"
 #define MAX_PROCESS_NAME_LEN 256
 
 MODULE_LICENSE("GPL");
@@ -34,7 +34,7 @@ struct process_info
 {
     pid_t *pid;
     unsigned long total_pages;
-    unsigned long valid_pages; 
+    unsigned long valid_pages;
     unsigned long invalid_pages;
     unsigned long nb_group;
     unsigned long identical_page_groups;
@@ -47,15 +47,8 @@ static void detect_identical_pages(void);
 
 static char proc_buffer[65536]; // Tampon pour stocker les données du fichier proc
 int compare_pages(struct page *page1, struct page *page2);
-static void copy_from_page(struct page *page, unsigned long vaddr, void *dst, int len);
-
-static void copy_from_page(struct page *page, unsigned long vaddr, void *dst, int len)
-{
-    void *kaddr = kmap_atomic(page);
-    memcpy(dst, kaddr + (vaddr & ~PAGE_MASK), len);
-    kunmap_atomic(kaddr);
-}
-static char kernel_buffer[1024];
+struct page *get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr);
+void compare_pages_within_process(struct mm_struct *mm, int index);
 
 void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_size)
 {
@@ -91,6 +84,12 @@ void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_siz
 
 static ssize_t write_proc(struct file *file, const char __user *buffer, size_t count, loff_t *pos)
 {
+    bool delete_success = false;
+    char process_name[MAX_PROCESS_NAME_LEN];
+    char *pipe_position;
+    int i;
+    int name_size = 0;
+
     // Vérifie si les données écrites dépassent la taille du tampon
     if (count >= sizeof(proc_buffer))
     {
@@ -114,18 +113,14 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
 
     if (strncmp(proc_buffer, "FILTER", 6) == 0)
     {
-        // Efface le contenu précédent du fichier proc
-        char process_name[MAX_PROCESS_NAME_LEN];
-        int name_size = 0;
 
         // Trouver le premier '|' dans proc_buffer
-        char *pipe_position = strchr(proc_buffer, '|');
+        pipe_position = strchr(proc_buffer, '|');
 
         // Vérifier si le '|' a été trouvé et s'il y a du texte après
         if (pipe_position != NULL && *(pipe_position + 1) != '\0' && *(pipe_position + 1) != '\n')
         {
             // Copy characters after '|' until newline or null terminator
-            int i;
             for (i = 0; i < MAX_PROCESS_NAME_LEN - 1; i++)
             {
                 if (pipe_position[i + 1] == '\n' || pipe_position[i + 1] == '\0')
@@ -148,7 +143,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
         }
         printk(KERN_INFO "Process name: %s\n", process_name);
 
-        size_t i;
         for (i = 0; i < num_processes; i++)
         {
             if (strncmp(info[i].name, process_name, strlen(process_name) - 1) == 0)
@@ -172,12 +166,9 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     if (strncmp(proc_buffer, "DEL", 3) == 0)
     {
         printk(KERN_INFO "Je suis dans le delete\n");
-        bool delete_success;
-        delete_success = false;
-        // Efface le contenu précédent du fichier proc
-        char process_name[MAX_PROCESS_NAME_LEN];
+
         // Trouver le premier '|' dans proc_buffer
-        char *pipe_position = strchr(proc_buffer, '|');
+        pipe_position = strchr(proc_buffer, '|');
 
         // Vérifier si le '|' a été trouvé et s'il y a du texte après
         if (pipe_position != NULL && *(pipe_position + 1) != '\0')
@@ -185,8 +176,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             // Copier le texte après '|' dans process_name
             strcpy(proc_buffer, pipe_position + 1);
         }
-
-        int i;
         for (i = 0; i < num_processes; ++i)
         {
             size_t proc_buffer_length = strlen(proc_buffer);
@@ -217,9 +206,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     }
     if (strncmp(proc_buffer, "ALL", 3) == 0)
     {
-        int offset = 0;
-
-        int i, j;
         char *process_info = kmalloc(4096 * sizeof(char), GFP_KERNEL);
         printk(KERN_INFO "Nombre de processus : %d\n", num_processes);
         memset(proc_buffer, '\0', sizeof(proc_buffer));
@@ -236,25 +222,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
                 strcat(proc_buffer, process_info);
             }
         }
-        // int i,j;
-
-        size_t bytes_written = 1;
-        ssize_t ret;
-        // for(i = 0; i < num_processes; i++) {
-        //
-        //     printk(KERN_INFO "PID: %d, Nom: %s\n", info[i].pid, info[i].name);
-        //
-        //     for (j = 0; j < info[i].identical_page_groups; j++) {
-        //         printk(KERN_INFO "PID(%d): %d\n", j+1, info[i].pid[j]);
-        //     }
-        // int len = snprintf(proc_buffer + bytes_written, sizeof(proc_buffer) - bytes_written, "[%lu] PID: %d, Nom: %s Total pages : %lu Valide Page : %lu Invalid page : %lu \n", jiffies, info[i].pid, info[i].name, info[i].total_pages, info[i].valid_pages, info[i].invalid_pages);
-        //  Vérifie si la longueur formatée dépasse la taille du tampon
-        // if (len >= sizeof(proc_buffer) - bytes_written) {
-        //     printk(KERN_ALERT "Tampon de sortie trop petit pour écrire toutes les informations sur les processus\n");
-        //     return -ENOMEM;
-        // }
-        // bytes_written += len;
-        //}
     }
     if (strncmp(proc_buffer, "RESET", 3) == 0)
     {
@@ -271,6 +238,8 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
 
 static ssize_t read_proc(struct file *file, char __user *buffer, size_t count, loff_t *pos)
 {
+    size_t bytes_to_copy;
+    size_t remaining_bytes;
     // Vérifie si la position est en dehors des limites du tampon
     if (*pos >= strlen(proc_buffer))
     {
@@ -279,8 +248,8 @@ static ssize_t read_proc(struct file *file, char __user *buffer, size_t count, l
     }
 
     // Détermine la quantité de données à copier dans le buffer utilisateur
-    size_t remaining_bytes = strlen(proc_buffer) - *pos;
-    size_t bytes_to_copy = count < remaining_bytes ? count : remaining_bytes;
+    remaining_bytes = strlen(proc_buffer) - *pos;
+    bytes_to_copy = count < remaining_bytes ? count : remaining_bytes;
 
     // Copie les données du tampon du fichier proc vers le buffer utilisateur
     if (copy_to_user(buffer, proc_buffer + *pos, bytes_to_copy))
@@ -304,7 +273,7 @@ static const struct file_operations proc_fops = {
 static void retrieve_process_info(void)
 {
     struct task_struct *task;
-
+    struct mm_struct *mm;
     num_processes = 0;
     // Parcourir la liste des processus
     for_each_process(task)
@@ -358,7 +327,7 @@ static void retrieve_process_info(void)
             }
             strncpy(info[num_processes].name, task->comm, sizeof(info[num_processes].name) - 1);
 
-            struct mm_struct *mm = task->mm;
+            mm = task->mm;
             if (mm != NULL)
             {
                 info[num_processes].total_pages = mm->total_vm;
@@ -390,7 +359,8 @@ static void retrieve_process_info(void)
 
     printk(KERN_INFO "number of processes: %d \n", num_processes);
 }
-struct page* get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr) {
+struct page *get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr)
+{
     pgd_t *pgd;
     p4d_t *p4d;
     pud_t *pud;
@@ -428,13 +398,15 @@ struct page* get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr) {
     return page;
 }
 
-int compare_pages(struct page *page1, struct page *page2) {
+int compare_pages(struct page *page1, struct page *page2)
+{
     char *buf1, *buf2;
     void *mapped_page1, *mapped_page2;
     int result = 0;
 
     // Vérifie si les pages sont valides
-    if (!page1 || !page2) {
+    if (!page1 || !page2)
+    {
         printk(KERN_INFO "Pages de mémoire invalides.\n");
         return -EINVAL;
     }
@@ -442,7 +414,8 @@ int compare_pages(struct page *page1, struct page *page2) {
     // Alloue un tampon pour stocker le contenu des pages
     buf1 = kmalloc(PAGE_SIZE, GFP_KERNEL);
     buf2 = kmalloc(PAGE_SIZE, GFP_KERNEL);
-    if (!buf1 || !buf2) {
+    if (!buf1 || !buf2)
+    {
         printk(KERN_INFO "Échec de l'allocation de mémoire pour les tampons.\n");
         kfree(buf1);
         kfree(buf2);
@@ -452,7 +425,8 @@ int compare_pages(struct page *page1, struct page *page2) {
     // Mappe les pages en mémoire
     mapped_page1 = kmap(page1);
     mapped_page2 = kmap(page2);
-    if (!mapped_page1 || !mapped_page2) {
+    if (!mapped_page1 || !mapped_page2)
+    {
         printk(KERN_INFO "Échec du mapping des pages.\n");
         result = -EFAULT;
         goto out_unmap;
@@ -463,11 +437,14 @@ int compare_pages(struct page *page1, struct page *page2) {
     memcpy(buf2, mapped_page2, PAGE_SIZE);
 
     // Compare le contenu des tampons
-    if (memcmp(buf1, buf2, PAGE_SIZE) == 0) {
+    if (memcmp(buf1, buf2, PAGE_SIZE) == 0)
+    {
         printk(KERN_INFO "Les pages sont identiques.\n");
         result = 1;
-    } else {
-        //printk(KERN_INFO "Les pages ne sont pas identiques.\n");
+    }
+    else
+    {
+        // printk(KERN_INFO "Les pages ne sont pas identiques.\n");
         result = 0;
     }
 
@@ -486,48 +463,62 @@ int *list_page = NULL;
 int list_length = 0;
 bool find_list = false;
 
-void compare_pages_within_process(struct mm_struct *mm, int index) {
+void compare_pages_within_process(struct mm_struct *mm, int index)
+{
     struct vm_area_struct *vma1, *vma2;
     int k;
-    for (vma1 = mm->mmap; vma1; vma1 = vma1->vm_next) {
-        if (vma1->vm_flags & VM_READ) { // Si on peut lire
+    for (vma1 = mm->mmap; vma1; vma1 = vma1->vm_next)
+    {
+        if (vma1->vm_flags & VM_READ)
+        { // Si on peut lire
             struct page *page1 = get_page_by_vaddr(mm, vma1->vm_start);
-            for (vma2 = vma1->vm_next; vma2; vma2 = vma2->vm_next) {
-                if (vma2->vm_flags & VM_READ) {
+            for (vma2 = vma1->vm_next; vma2; vma2 = vma2->vm_next)
+            {
+                if (vma2->vm_flags & VM_READ)
+                {
                     struct page *page2 = get_page_by_vaddr(mm, vma2->vm_start);
-                    if (page1 && page2) {
+                    if (page1 && page2)
+                    {
                         int result = compare_pages(page1, page2);
-                        if (result == 1) {
+                        if (result == 1)
+                        {
                             printk(KERN_INFO "Les pages sont identiques dans le même processus.\n");
                             find_list = false;
-                            for(k = 0; k < list_length; k++) {
-                                if (list_page[k] == page_to_pfn(page1)) {
+                            for (k = 0; k < list_length; k++)
+                            {
+                                if (list_page[k] == page_to_pfn(page1))
+                                {
                                     find_list = true;
                                     break;
                                 }
                             }
-                            if (!find_list) { //Si le process n'est pas encore dans le tableau
+                            if (!find_list)
+                            { // Si le process n'est pas encore dans le tableau
                                 int *temp = krealloc(list_page, (list_length + 1) * sizeof(int), GFP_KERNEL);
-                                if (temp) {
+                                if (temp)
+                                {
                                     list_page = temp;
                                     list_page[list_length++] = page_to_pfn(page1); // Incrémente list_length après chaque allocation réussie
-                                    
+
                                     info[index].may_be_shared = info[index].may_be_shared + 2;
-                                    printk(KERN_ERR "JE PRINT LE NB GROUP AVANT :  %d \n", info[index].nb_group);
-                                    info[index].nb_group  = info[index].nb_group + 1;
-                                    printk(KERN_ERR "JE PRINT LE NB GROUP APRES :  %d \n", info[index].nb_group);
-                                    printk(KERN_ERR "JE PRINT LE NB GROUP PID :  %d \n", info[index].pid[0]);
-                                    
-                                } else {
+                                    printk(KERN_ERR "JE PRINT LE NB GROUP AVANT :  %lu \n", info[index].nb_group);
+                                    info[index].nb_group = info[index].nb_group + 1;
+                                    printk(KERN_ERR "JE PRINT LE NB GROUP APRES :  %lu \n", info[index].nb_group);
+                                    printk(KERN_ERR "JE PRINT LE NB GROUP PID :  %lu \n", info[index].pid[0]);
+                                }
+                                else
+                                {
                                     // Gestion de l'erreur de réallocation de mémoire
                                     printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages :  %d \n", temp);
                                     // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
                                 }
-                            } else {
+                            }
+                            else
+                            {
                                 info[index].may_be_shared++;
                             }
 
-                            //printk(KERN_INFO "L'indes 1 : %d, 2 : %d\n", i1, i2);
+                            // printk(KERN_INFO "L'indes 1 : %d, 2 : %d\n", i1, i2);
                             printk(KERN_INFO "NEW Les pages sont identiques avec le PID : %d et le PID : %d \n", info[index].pid[0], info[index].pid[0]);
                         }
                     }
@@ -537,10 +528,12 @@ void compare_pages_within_process(struct mm_struct *mm, int index) {
     }
 }
 
-void detect_identical_pages() {
+void detect_identical_pages()
+{
     int i, j, k;
 
-    for (i = 0; i < num_processes; i++) {
+    for (i = 0; i < num_processes; i++)
+    {
         struct mm_struct *mm1 = NULL;
         struct mm_struct *mm2 = NULL;
         struct vm_area_struct *vma1, *vma2;
@@ -549,11 +542,12 @@ void detect_identical_pages() {
 
         list_page = NULL;
         list_length = 0;
-        
+
         find_list = false;
 
         list_page = kmalloc(sizeof(int), GFP_KERNEL);
-        if (!list_page) {
+        if (!list_page)
+        {
             // Gestion de l'erreur d'allocation de mémoire
             printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la première case du tableau.\n");
             // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
@@ -561,52 +555,69 @@ void detect_identical_pages() {
         list_length++;
 
         task = pid_task(find_vpid(info[i].pid[0]), PIDTYPE_PID); // On récupère le premier PID
-        if (task) {
+        if (task)
+        {
             mm1 = get_task_mm(task);
-            if (mm1) {
-                compare_pages_within_process(mm1,i);
-                for (vma1 = mm1->mmap; vma1; vma1 = vma1->vm_next) {
-                    if (vma1->vm_flags & VM_READ) { // Si on peut lire
-                        for (j = 1; j <= info[i].identical_page_groups; j++) {
+            if (mm1)
+            {
+                compare_pages_within_process(mm1, i);
+                for (vma1 = mm1->mmap; vma1; vma1 = vma1->vm_next)
+                {
+                    if (vma1->vm_flags & VM_READ)
+                    { // Si on peut lire
+                        for (j = 1; j <= info[i].identical_page_groups; j++)
+                        {
                             struct page *page1 = get_page_by_vaddr(mm1, vma1->vm_start);
                             struct page *page2 = NULL;
                             task = pid_task(find_vpid(info[i].pid[j]), PIDTYPE_PID);
-                            if (task) {
+                            if (task)
+                            {
                                 mm2 = get_task_mm(task);
-                                if (mm2) {
-                                    for (vma2 = mm2->mmap; vma2; vma2 = vma2->vm_next) {
-                                        if (vma2->vm_flags & VM_READ) {
+                                if (mm2)
+                                {
+                                    for (vma2 = mm2->mmap; vma2; vma2 = vma2->vm_next)
+                                    {
+                                        if (vma2->vm_flags & VM_READ)
+                                        {
                                             page2 = get_page_by_vaddr(mm2, vma2->vm_start);
-                                            if (page1 && page2) {
+                                            if (page1 && page2)
+                                            {
                                                 result = compare_pages(page1, page2);
-                                                if (result == 1) {
+                                                if (result == 1)
+                                                {
                                                     find_list = false;
-                                                    for(k = 0; k < list_length; k++) {
-                                                        if (list_page[k] == page_to_pfn(page1)) {
+                                                    for (k = 0; k < list_length; k++)
+                                                    {
+                                                        if (list_page[k] == page_to_pfn(page1))
+                                                        {
                                                             find_list = true;
                                                             break;
                                                         }
                                                     }
-                                                    if (!find_list) { //Si le process n'est pas encore dans le tableau
+                                                    if (!find_list)
+                                                    { // Si le process n'est pas encore dans le tableau
                                                         int *temp = krealloc(list_page, (list_length + 1) * sizeof(int), GFP_KERNEL);
-                                                        if (temp) {
+                                                        if (temp)
+                                                        {
                                                             list_page = temp;
                                                             list_page[list_length++] = page_to_pfn(page1); // Incrémente list_length après chaque allocation réussie
                                                             info[i].nb_group++;
                                                             info[i].may_be_shared = info[i].may_be_shared + 2;
-                                                            
-                                                        } else {
+                                                        }
+                                                        else
+                                                        {
                                                             // Gestion de l'erreur de réallocation de mémoire
                                                             printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages :  %d \n", temp);
                                                             // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
                                                         }
-                                                    } else {
+                                                    }
+                                                    else
+                                                    {
                                                         info[i].may_be_shared++;
                                                     }
-    
-                                                    //printk(KERN_INFO "L'indes 1 : %d, 2 : %d\n", i1, i2);
+
+                                                    // printk(KERN_INFO "L'indes 1 : %d, 2 : %d\n", i1, i2);
                                                     printk(KERN_INFO "NEW Les pages sont identiques avec le PID : %d et le PID : %d \n", info[i].pid[0], info[i].pid[j]);
-               
                                                 }
                                             }
                                         }
@@ -620,10 +631,9 @@ void detect_identical_pages() {
                 mmput(mm1);
             }
         }
-    kfree(list_page);
+        kfree(list_page);
     }
 }
-
 
 // Fonction d'initialisation du module
 static int __init process_info_init(void)
