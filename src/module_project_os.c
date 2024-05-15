@@ -146,7 +146,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
 
         for (i = 0; i < num_processes; i++)
         {
-            if (strncmp(info[i].name, process_name, strlen(process_name) - 1) == 0)
+            if (strncmp(info[i].name, process_name, strlen(process_name)) == 0)
             {
                 char *process_info = kmalloc(4096 * sizeof(char), GFP_KERNEL);
                 retrieve_processes_by_name(i, process_info, 4096);
@@ -190,7 +190,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
         }
         for (i = 0; i < num_processes; i++)
         {
-            if (strncmp(info[i].name, process_name, strlen(process_name) - 1) == 0)
+            if (strncmp(info[i].name, process_name, strlen(process_name)) == 0)
             {
                 // Supprimer le processus trouvé en décalant les éléments suivants dans le tableau
                 printk(KERN_INFO "Processus trouvé : PID = %d, Nom = %s\n", info[i].pid[0], info[i].name);
