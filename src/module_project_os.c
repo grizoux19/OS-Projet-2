@@ -182,12 +182,9 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             }
             process_name[name_size] = '\0';
         }
-        for (i = 0; i < num_processes; ++i)
+        for (i = 0; i < num_processes; i++)
         {
-            size_t proc_buffer_length = strlen(proc_buffer);
-            proc_buffer_length -= 1;
-            printk(KERN_INFO "PID: %d, Nom: %s\n", info[i].pid[0], info[i].name);
-            if (strncmp(info[i].name, proc_buffer, proc_buffer_length) == 0 && strlen(info[i].name) == proc_buffer_length)
+            if (strncmp(info[i].name, process_name, strlen(process_name) - 1) == 0)
             {
                 // Supprimer le processus trouvé en décalant les éléments suivants dans le tableau
                 printk(KERN_INFO "Processus trouvé : PID = %d, Nom = %s\n", info[i].pid[0], info[i].name);
