@@ -234,12 +234,24 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     }
     if (strncmp(proc_buffer, "RESET", 3) == 0)
     {
+        if (info != NULL) {
+        // Libérer la mémoire allouée pour chaque tableau de PID
+        int i;
+        for (i = 0; i < num_processes; ++i) {
+            kfree(info[i].pid);
+        }
+
+        // Libérer la mémoire allouée pour la structure info
         kfree(info);
         info = NULL;
+        }
+
         retrieve_process_info();
+        detect_identical_pages();
         memset(proc_buffer, '\0', sizeof(proc_buffer));
 
         printk(KERN_INFO "Reset fini");
+        
     }
 
     // Renvoie le nombre d'octets écrits
@@ -354,6 +366,7 @@ static void retrieve_process_info(void)
 
             info[num_processes].nb_group = 0;              // À implémenter si nécessaire
             info[num_processes].identical_page_groups = 0; // À implémenter si nécessaire
+            info[num_processes].may_be_shared = 0;
             info[num_processes].pid = kmalloc(sizeof(pid_t), GFP_KERNEL);
             if (!info[num_processes].pid)
             {
