@@ -7,7 +7,7 @@
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/mm.h>
-#include <linux/slab.h>:
+#include <linux/slab.h>
 #include <linux/seq_file.h>
 #include <linux/sched/mm.h>
 #include <linux/fs.h>
@@ -20,12 +20,12 @@
 #include <linux/sched/task.h>
 #include <linux/mm_types.h>
 
-#define PROC_NAME "module_info0940"
+#define PROC_NAME "module_project_os"
 #define MAX_PROCESS_NAME_LEN 256
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Votre Nom");
-MODULE_DESCRIPTION("Module de test pour /proc");
+MODULE_AUTHOR("Bowser & Ogre");
+MODULE_DESCRIPTION("Module pour l'information sur la mémoire");
 
 struct process_info *info;
 static int num_processes = 0;
@@ -34,11 +34,11 @@ struct process_info
 {
     pid_t *pid;
     unsigned long total_pages;
-    unsigned long valid_pages;
+    unsigned long valid_pages; 
     unsigned long invalid_pages;
     unsigned long nb_group;
-    unsigned int identical_page_groups;
-    unsigned long may_be_shared ;
+    unsigned long identical_page_groups;
+    unsigned long may_be_shared;
     char name[255];
 };
 
@@ -49,18 +49,16 @@ static char proc_buffer[65536]; // Tampon pour stocker les données du fichier p
 int compare_pages(struct page *page1, struct page *page2);
 static void copy_from_page(struct page *page, unsigned long vaddr, void *dst, int len);
 
-
 static void copy_from_page(struct page *page, unsigned long vaddr, void *dst, int len)
 {
-	void *kaddr = kmap_atomic(page);
-	memcpy(dst, kaddr + (vaddr & ~PAGE_MASK), len);
-	kunmap_atomic(kaddr);
+    void *kaddr = kmap_atomic(page);
+    memcpy(dst, kaddr + (vaddr & ~PAGE_MASK), len);
+    kunmap_atomic(kaddr);
 }
 static char kernel_buffer[1024];
 
 void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_size)
 {
-    struct task_struct *task;
     int offset = 0;
     bool find = false;
 
@@ -70,7 +68,7 @@ void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_siz
     // buf_pttr + offset ->popinteur vers la position actuel
     // sizeof(buffer) - offset -> espace restant dans le buffer
     offset += snprintf(buffer + offset, buffer_size - offset,
-                       "%s, total: %lu, valid: %lu, invalid: %lu, maybe shared: %lu, nb group: %d, pid(%d): ",
+                       "%s, total: %lu, valid: %lu, invalid: %lu, maybe shared: %lu, nb group: %lu, pid(%lu): ",
                        info[index].name, info[index].total_pages, info[index].valid_pages,
                        info[index].invalid_pages, info[index].may_be_shared,
                        info[index].nb_group, info[index].identical_page_groups + 1);
@@ -113,35 +111,54 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     printk(KERN_INFO "Données écrites dans le fichier proc: %s\n", proc_buffer);
 
     // Si les données écrites sont "echo" suivi de "Bonjour", écrivez "Bonjour" dans le fichier proc
+
     if (strncmp(proc_buffer, "FILTER", 6) == 0)
     {
         // Efface le contenu précédent du fichier proc
         char process_name[MAX_PROCESS_NAME_LEN];
+        int name_size = 0;
+
         // Trouver le premier '|' dans proc_buffer
         char *pipe_position = strchr(proc_buffer, '|');
 
         // Vérifier si le '|' a été trouvé et s'il y a du texte après
-        if (pipe_position != NULL && *(pipe_position + 1) != '\0')
+        if (pipe_position != NULL && *(pipe_position + 1) != '\0' && *(pipe_position + 1) != '\n')
         {
-            // Copier le texte après '|' dans process_name
-            strcpy(proc_buffer, pipe_position + 1);
+            // Copy characters after '|' until newline or null terminator
+            int i;
+            for (i = 0; i < MAX_PROCESS_NAME_LEN - 1; i++)
+            {
+                if (pipe_position[i + 1] == '\n' || pipe_position[i + 1] == '\0')
+                {
+                    break;
+                }
+                process_name[i] = pipe_position[i + 1];
+                name_size++;
+            }
+            process_name[name_size] = '\0'; // Ensure null termination
+
+            printk(KERN_INFO "Name size: %d\n", name_size);
+            printk(KERN_INFO "Process name: %s\n", process_name);
         }
-        size_t len = strlen(process_name);
+
+        else
+        {
+            printk(KERN_INFO "Aucun nom de processus trouvé\n");
+            return -EINVAL;
+        }
+        printk(KERN_INFO "Process name: %s\n", process_name);
 
         size_t i;
-        for (i = 0; i < strlen(proc_buffer); ++i)
-        {
-            char current_char = proc_buffer[i];
-        }
         for (i = 0; i < num_processes; i++)
         {
-            if (strncmp(info[i].name, proc_buffer, strlen(proc_buffer) - 1) == 0)
+            if (strncmp(info[i].name, process_name, strlen(process_name) - 1) == 0)
             {
                 char *process_info = kmalloc(4096 * sizeof(char), GFP_KERNEL);
                 retrieve_processes_by_name(i, process_info, 4096);
+                printk(KERN_INFO "Filter: %s\n", process_info);
                 if (process_info != NULL)
                 {
-                    strcpy(proc_buffer, process_info);
+                    snprintf(proc_buffer, sizeof(proc_buffer), process_info);
                 }
                 else
                 {
@@ -155,7 +172,8 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     if (strncmp(proc_buffer, "DEL", 3) == 0)
     {
         printk(KERN_INFO "Je suis dans le delete\n");
-        bool delete_success = false;
+        bool delete_success;
+        delete_success = false;
         // Efface le contenu précédent du fichier proc
         char process_name[MAX_PROCESS_NAME_LEN];
         // Trouver le premier '|' dans proc_buffer
@@ -177,7 +195,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             if (strncmp(info[i].name, proc_buffer, proc_buffer_length) == 0 && strlen(info[i].name) == proc_buffer_length)
             {
                 // Supprimer le processus trouvé en décalant les éléments suivants dans le tableau
-                printk(KERN_INFO "Processus trouvé : PID = %d, Nom = %s\n", info[i].pid, info[i].name);
+                printk(KERN_INFO "Processus trouvé : PID = %d, Nom = %s\n", info[i].pid[0], info[i].name);
 
                 memmove(&info[i], &info[i + 1], (num_processes - i - 1) * sizeof(struct process_info));
                 // Décrémenter le nombre total de processus
@@ -186,10 +204,15 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
                 break; // Sortir de la boucle une fois que le processus est supprimé
             }
         }
-        if (delete_success) {
-            snprintf(proc_buffer, sizeof(proc_buffer), "success\n");
-        } else {
-            snprintf(proc_buffer, sizeof(proc_buffer), "error\n");
+        memset(proc_buffer, '\0', sizeof(proc_buffer));
+        if (delete_success)
+        {
+
+            snprintf(proc_buffer, sizeof(proc_buffer), "[SUCCESS]\n");
+        }
+        else
+        {
+            snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]\n");
         }
     }
     if (strncmp(proc_buffer, "ALL", 3) == 0)
@@ -199,6 +222,8 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
         int i, j;
         char *process_info = kmalloc(4096 * sizeof(char), GFP_KERNEL);
         printk(KERN_INFO "Nombre de processus : %d\n", num_processes);
+        memset(proc_buffer, '\0', sizeof(proc_buffer));
+
         for (i = 0; i < num_processes; i++)
         {
             retrieve_processes_by_name(i, process_info, 4096);
@@ -211,15 +236,32 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
                 strcat(proc_buffer, process_info);
             }
         }
+        // int i,j;
 
         size_t bytes_written = 1;
         ssize_t ret;
-
+        // for(i = 0; i < num_processes; i++) {
+        //
+        //     printk(KERN_INFO "PID: %d, Nom: %s\n", info[i].pid, info[i].name);
+        //
+        //     for (j = 0; j < info[i].identical_page_groups; j++) {
+        //         printk(KERN_INFO "PID(%d): %d\n", j+1, info[i].pid[j]);
+        //     }
+        // int len = snprintf(proc_buffer + bytes_written, sizeof(proc_buffer) - bytes_written, "[%lu] PID: %d, Nom: %s Total pages : %lu Valide Page : %lu Invalid page : %lu \n", jiffies, info[i].pid, info[i].name, info[i].total_pages, info[i].valid_pages, info[i].invalid_pages);
+        //  Vérifie si la longueur formatée dépasse la taille du tampon
+        // if (len >= sizeof(proc_buffer) - bytes_written) {
+        //     printk(KERN_ALERT "Tampon de sortie trop petit pour écrire toutes les informations sur les processus\n");
+        //     return -ENOMEM;
+        // }
+        // bytes_written += len;
+        //}
     }
     if (strncmp(proc_buffer, "RESET", 3) == 0)
     {
         kfree(info);
         retrieve_process_info();
+        memset(proc_buffer, '\0', sizeof(proc_buffer));
+
         printk(KERN_INFO "Reset fini");
     }
 
@@ -331,8 +373,7 @@ static void retrieve_process_info(void)
                 info[num_processes].invalid_pages = 0;
             }
 
-            info[num_processes].nb_group = 0; // À implémenter si nécessaire
-            info[num_processes].may_be_shared = 0;
+            info[num_processes].nb_group = 0;              // À implémenter si nécessaire
             info[num_processes].identical_page_groups = 0; // À implémenter si nécessaire
             info[num_processes].pid = kmalloc(sizeof(pid_t), GFP_KERNEL);
             if (!info[num_processes].pid)
@@ -349,7 +390,6 @@ static void retrieve_process_info(void)
 
     printk(KERN_INFO "number of processes: %d \n", num_processes);
 }
-
 struct page* get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr) {
     pgd_t *pgd;
     p4d_t *p4d;
@@ -583,6 +623,7 @@ void detect_identical_pages() {
     kfree(list_page);
     }
 }
+
 
 // Fonction d'initialisation du module
 static int __init process_info_init(void)
