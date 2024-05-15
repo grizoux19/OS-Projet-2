@@ -53,8 +53,6 @@ void compare_pages_within_process(struct mm_struct *mm, int index);
 void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_size)
 {
     int offset = 0;
-    bool find = false;
-
     int j;
 
     // Ajouter les informations de ce processus au buffer
@@ -74,12 +72,6 @@ void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_siz
         }
     }
     offset += snprintf(buffer + offset, buffer_size - offset, "\n"); // ajout de retour à la ligne
-    find = true;
-    if (!find)
-    {
-        // Si aucun processus n'a été trouvé, affiche un message approprié
-        printk(KERN_INFO "Aucun process trouvé \n");
-    }
 }
 
 static ssize_t write_proc(struct file *file, const char __user *buffer, size_t count, loff_t *pos)
@@ -94,7 +86,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     // Vérifie si les données écrites dépassent la taille du tampon
     if (count >= sizeof(proc_buffer))
     {
-        printk(KERN_ALERT "Trop de données pour écrire dans le fichier proc\n");
         return -EINVAL;
     }
 
@@ -108,7 +99,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     // proc_buffer[count] = '\0';
 
     // Affiche les données du buffer dans les logs du noyau
-    printk(KERN_INFO "Données écrites dans le fichier proc: %s\n", proc_buffer);
 
     // Si les données écrites sont "echo" suivi de "Bonjour", écrivez "Bonjour" dans le fichier proc
 
@@ -132,17 +122,12 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
                 name_size++;
             }
             process_name[name_size] = '\0'; // Ensure null termination
-
-            printk(KERN_INFO "Name size: %d\n", name_size);
-            printk(KERN_INFO "Process name: %s\n", process_name);
         }
 
         else
         {
-            printk(KERN_INFO "Aucun nom de processus trouvé\n");
             return -EINVAL;
         }
-        printk(KERN_INFO "Process name: %s\n", process_name);
 
         for (i = 0; i < num_processes; i++)
         {
@@ -150,7 +135,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             {
                 char *process_info = kmalloc(4096 * sizeof(char), GFP_KERNEL);
                 retrieve_processes_by_name(i, process_info, 4096);
-                printk(KERN_INFO "Filter: %s\n", process_info);
                 if (process_info != NULL)
                 {
                     filter_success = true;
@@ -159,7 +143,8 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             }
         }
 
-        if(!filter_success){
+        if (!filter_success)
+        {
             snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]: No such process\n");
         }
 
@@ -189,7 +174,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             if (strncmp(info[i].name, process_name, strlen(process_name)) == 0)
             {
                 // Supprimer le processus trouvé en décalant les éléments suivants dans le tableau
-                printk(KERN_INFO "Processus trouvé : PID = %d, Nom = %s\n", info[i].pid[0], info[i].name);
 
                 memmove(&info[i], &info[i + 1], (num_processes - i - 1) * sizeof(struct process_info));
                 // Décrémenter le nombre total de processus
@@ -212,7 +196,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     else if (strncmp(proc_buffer, "ALL", 3) == 0)
     {
         char *process_info = kmalloc(4096 * sizeof(char), GFP_KERNEL);
-        printk(KERN_INFO "Nombre de processus : %d\n", num_processes);
         memset(proc_buffer, '\0', sizeof(proc_buffer));
 
         for (i = 0; i < num_processes; i++)
@@ -230,26 +213,27 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     }
     else if (strncmp(proc_buffer, "RESET", 5) == 0)
     {
-        if (info != NULL) {
-        // Libérer la mémoire allouée pour chaque tableau de PID
-        int i;
-        for (i = 0; i < num_processes; ++i) {
-            kfree(info[i].pid);
-        }
+        if (info != NULL)
+        {
+            // Libérer la mémoire allouée pour chaque tableau de PID
+            int i;
+            for (i = 0; i < num_processes; ++i)
+            {
+                kfree(info[i].pid);
+            }
 
-        // Libérer la mémoire allouée pour la structure info
-        kfree(info);
-        info = NULL;
+            // Libérer la mémoire allouée pour la structure info
+            kfree(info);
+            info = NULL;
         }
 
         retrieve_process_info();
         detect_identical_pages();
         memset(proc_buffer, '\0', sizeof(proc_buffer));
         snprintf(proc_buffer, sizeof(proc_buffer), "[SUCCESS]\n");
-        printk(KERN_INFO "Reset fini");
-        
     }
-    else{
+    else
+    {
         snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]: Invalid argument\n");
     }
 
@@ -316,15 +300,11 @@ static void retrieve_process_info(void)
                 info[i].pid = krealloc(info[i].pid, (info[i].identical_page_groups + 1) * sizeof(pid_t), GFP_KERNEL);
                 if (!info[i].pid)
                 {
-                    printk(KERN_ALERT "Échec de l'allocation de mémoire\n");
                     return;
                 }
                 info[i].pid[info[i].identical_page_groups + 1] = task->pid;
                 info[i].identical_page_groups++;
                 found = 1;
-                printk(KERN_INFO "Il y a un process en double le voici -> PID: %d, Nom: %s \n", info[i].pid[info[i].identical_page_groups], info[i].name);
-                printk(KERN_INFO "Process auquel il se rapporte : %d  \n", info[i].pid[0]);
-
                 break;
             }
         }
@@ -341,7 +321,6 @@ static void retrieve_process_info(void)
                 struct process_info *temp = krealloc(info, (num_processes + 1) * sizeof(struct process_info), GFP_KERNEL);
                 if (!temp)
                 {
-                    printk(KERN_ALERT "Échec de l'allocation de mémoire\n");
                     return;
                 }
                 info = temp;
@@ -369,17 +348,12 @@ static void retrieve_process_info(void)
             info[num_processes].pid = kmalloc(sizeof(pid_t), GFP_KERNEL);
             if (!info[num_processes].pid)
             {
-                printk(KERN_ALERT "Échec de l'allocation de mémoire\n");
                 return;
             }
             info[num_processes].pid[0] = task->pid;
             num_processes++;
-
-            printk(KERN_INFO "PID: %d, Nom: %s Total pages : %lu Valide Page : %lu Invalid page : %lu \n", info[num_processes - 1].pid[0], info[num_processes - 1].name, info[num_processes - 1].total_pages, info[num_processes - 1].valid_pages, info[num_processes - 1].invalid_pages);
         }
     }
-
-    printk(KERN_INFO "number of processes: %d \n", num_processes);
 }
 struct page *get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr)
 {
@@ -429,7 +403,6 @@ int compare_pages(struct page *page1, struct page *page2)
     // Vérifie si les pages sont valides
     if (!page1 || !page2)
     {
-        printk(KERN_INFO "Pages de mémoire invalides.\n");
         return -EINVAL;
     }
 
@@ -438,7 +411,6 @@ int compare_pages(struct page *page1, struct page *page2)
     buf2 = kmalloc(PAGE_SIZE, GFP_KERNEL);
     if (!buf1 || !buf2)
     {
-        printk(KERN_INFO "Échec de l'allocation de mémoire pour les tampons.\n");
         kfree(buf1);
         kfree(buf2);
         return -ENOMEM;
@@ -449,7 +421,6 @@ int compare_pages(struct page *page1, struct page *page2)
     mapped_page2 = kmap(page2);
     if (!mapped_page1 || !mapped_page2)
     {
-        printk(KERN_INFO "Échec du mapping des pages.\n");
         result = -EFAULT;
         goto out_unmap;
     }
@@ -461,12 +432,10 @@ int compare_pages(struct page *page1, struct page *page2)
     // Compare le contenu des tampons
     if (memcmp(buf1, buf2, PAGE_SIZE) == 0)
     {
-        printk(KERN_INFO "Les pages sont identiques.\n");
         result = 1;
     }
     else
     {
-        // printk(KERN_INFO "Les pages ne sont pas identiques.\n");
         result = 0;
     }
 
@@ -504,7 +473,6 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                         int result = compare_pages(page1, page2);
                         if (result == 1)
                         {
-                            printk(KERN_INFO "Les pages sont identiques dans le même processus.\n");
                             find_list = false;
                             for (k = 0; k < list_length; k++)
                             {
@@ -528,7 +496,7 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                                 else
                                 {
                                     // Gestion de l'erreur de réallocation de mémoire
-                                    printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages\n");
+
                                     // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
                                 }
                             }
@@ -536,9 +504,6 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                             {
                                 info[index].may_be_shared++;
                             }
-
-                            // printk(KERN_INFO "L'indes 1 : %d, 2 : %d\n", i1, i2);
-                            printk(KERN_INFO "NEW Les pages sont identiques avec le PID : %d et le PID : %d \n", info[index].pid[0], info[index].pid[0]);
                         }
                     }
                 }
@@ -568,8 +533,7 @@ void detect_identical_pages()
         if (!list_page)
         {
             // Gestion de l'erreur d'allocation de mémoire
-            printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la première case du tableau.\n");
-            // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
+            return;
         }
         list_length++;
 
@@ -626,7 +590,7 @@ void detect_identical_pages()
                                                         else
                                                         {
                                                             // Gestion de l'erreur de réallocation de mémoire
-                                                            printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages\n");
+                                                            return;
                                                             // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
                                                         }
                                                     }
@@ -634,9 +598,6 @@ void detect_identical_pages()
                                                     {
                                                         info[i].may_be_shared++;
                                                     }
-
-                                                    // printk(KERN_INFO "L'indes 1 : %d, 2 : %d\n", i1, i2);
-                                                    printk(KERN_INFO "NEW Les pages sont identiques avec le PID : %d et le PID : %d \n", info[i].pid[0], info[i].pid[j]);
                                                 }
                                             }
                                         }
@@ -670,7 +631,7 @@ static int __init process_info_init(void)
     // Pages identical
     detect_identical_pages();
 
-    printk(KERN_INFO "Module de test du fichier proc initialisé\n");
+    printk(KERN_INFO "Module de memory info du fichier proc initialisé\n");
     return 0;
 }
 
@@ -678,7 +639,7 @@ static void __exit proc_exit(void)
 {
     // Supprime le fichier proc lors du déchargement du module
     remove_proc_entry(PROC_NAME, NULL);
-    printk(KERN_INFO "Module de test du fichier proc déchargé\n");
+    printk(KERN_INFO "Module de memory info du fichier proc déchargé\n");
 }
 
 module_init(process_info_init);
