@@ -38,7 +38,7 @@ struct process_info
 static void retrieve_process_info(void);
 static void detect_identical_pages(void);
 
-static char proc_buffer[1024]; // Tampon pour stocker les données du fichier proc
+static char proc_buffer[65536]; // Tampon pour stocker les données du fichier proc
 static char kernel_buffer[1024];
 
 void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_size)
@@ -98,8 +98,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     // Si les données écrites sont "echo" suivi de "Bonjour", écrivez "Bonjour" dans le fichier proc
     if (strncmp(proc_buffer, "FILTER", 6) == 0)
     {
-        printk(KERN_INFO "Je suis dans le filter\n");
-
         // Efface le contenu précédent du fichier proc
         char process_name[MAX_PROCESS_NAME_LEN];
         // Trouver le premier '|' dans proc_buffer
@@ -111,7 +109,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
             // Copier le texte après '|' dans process_name
             strcpy(proc_buffer, pipe_position + 1);
         }
-        printk(KERN_INFO "Processus à filtrer : %s\n", proc_buffer);
         size_t len = strlen(process_name);
 
         size_t i;
@@ -123,12 +120,10 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
         {
             if (strncmp(info[i].name, proc_buffer, strlen(proc_buffer) - 1) == 0)
             {
-                printk(KERN_INFO "Processus trouvé : PID = %d, Nom = %s\n", info[i].pid[0], info[i].name);
                 char *process_info = kmalloc(4096 * sizeof(char), GFP_KERNEL);
                 retrieve_processes_by_name(i, process_info, 4096);
                 if (process_info != NULL)
                 {
-                    printk(KERN_INFO "%s", process_info);
                     strcpy(proc_buffer, process_info);
                 }
                 else
@@ -341,20 +336,7 @@ static void retrieve_process_info(void)
         }
     }
 
-    printk(KERN_INFO "OK CEST FINIIIIIIIIIIIIIIIIIIIIIIII \n");
-
-    int i, j;
-
-    for (i = 0; i < num_processes; i++)
-    {
-
-        printk(KERN_INFO "PID: %d, Nom: %s\n", info[i].pid[0], info[i].name);
-
-        for (j = 1; j <= info[i].identical_page_groups; j++)
-        {
-            printk(KERN_INFO "PID identique %d: %d\n", j, info[i].pid[j]);
-        }
-    }
+    printk(KERN_INFO "number of processes: %d \n", num_processes);
 }
 
 void detect_identical_pages()
