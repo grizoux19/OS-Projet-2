@@ -20,12 +20,12 @@
 #include <linux/sched/task.h>
 #include <linux/mm_types.h>
 
-#define PROC_NAME "module_info0940"
+#define PROC_NAME "module_project_os"
 #define MAX_PROCESS_NAME_LEN 256
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Votre Nom");
-MODULE_DESCRIPTION("Module de test pour /proc");
+MODULE_AUTHOR("Bowser & Ogre");
+MODULE_DESCRIPTION("Module pour l'information sur la mémoire");
 
 struct process_info *info;
 static int num_processes = 0;
