@@ -614,7 +614,7 @@ void detect_identical_pages()
                                                         else
                                                         {
                                                             // Gestion de l'erreur de réallocation de mémoire
-                                                            printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages :  %d \n", temp);
+                                                            printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages\n");
                                                             // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
                                                         }
                                                     }
