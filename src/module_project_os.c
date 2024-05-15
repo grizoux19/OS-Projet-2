@@ -87,6 +87,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     bool delete_success = false;
     char process_name[MAX_PROCESS_NAME_LEN];
     char *pipe_position;
+    bool filter_success = false;
     int i;
     int name_size = 0;
 
@@ -152,6 +153,7 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
                 printk(KERN_INFO "Filter: %s\n", process_info);
                 if (process_info != NULL)
                 {
+                    filter_success = true;
                     snprintf(proc_buffer, sizeof(proc_buffer), process_info);
                 }
                 else
@@ -159,6 +161,10 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
                     printk(KERN_INFO "Aucun process trouvé \n");
                 }
             }
+        }
+
+        if(!filter_success){
+            snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]\n");
         }
 
         // Renvoie la longueur de la chaîne "Bonjour" comme le nombre d'octets écrit
