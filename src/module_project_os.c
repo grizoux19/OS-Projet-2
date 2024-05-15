@@ -501,15 +501,12 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                                     list_page[list_length++] = page_to_pfn(page1); // Incrémente list_length après chaque allocation réussie
 
                                     info[index].may_be_shared = info[index].may_be_shared + 2;
-                                    printk(KERN_ERR "JE PRINT LE NB GROUP AVANT :  %lu \n", info[index].nb_group);
                                     info[index].nb_group = info[index].nb_group + 1;
-                                    printk(KERN_ERR "JE PRINT LE NB GROUP APRES :  %lu \n", info[index].nb_group);
-                                    printk(KERN_ERR "JE PRINT LE NB GROUP PID :  %lu \n", info[index].pid[0]);
                                 }
                                 else
                                 {
                                     // Gestion de l'erreur de réallocation de mémoire
-                                    printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages :  %d \n", temp);
+                                    printk(KERN_ERR "Erreur lors de l'allocation de mémoire pour la liste de pages\n",);
                                     // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
                                 }
                             }
