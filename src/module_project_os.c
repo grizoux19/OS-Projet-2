@@ -165,16 +165,22 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     }
     if (strncmp(proc_buffer, "DEL", 3) == 0)
     {
-        printk(KERN_INFO "Je suis dans le delete\n");
-
-        // Trouver le premier '|' dans proc_buffer
         pipe_position = strchr(proc_buffer, '|');
 
         // Vérifier si le '|' a été trouvé et s'il y a du texte après
-        if (pipe_position != NULL && *(pipe_position + 1) != '\0')
+        if (pipe_position != NULL && *(pipe_position + 1) != '\0' && *(pipe_position + 1) != '\n')
         {
-            // Copier le texte après '|' dans process_name
-            strcpy(proc_buffer, pipe_position + 1);
+            // Copy characters after '|' until newline or null terminator
+            for (i = 0; i < MAX_PROCESS_NAME_LEN - 1; i++)
+            {
+                if (pipe_position[i + 1] == '\n' || pipe_position[i + 1] == '\0')
+                {
+                    break;
+                }
+                process_name[i] = pipe_position[i + 1];
+                name_size++;
+            }
+            process_name[name_size] = '\0';
         }
         for (i = 0; i < num_processes; ++i)
         {
