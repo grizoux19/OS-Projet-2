@@ -32,7 +32,7 @@ static int num_processes = 0;
 
 struct process_info
 {
-    pid_t *pid;
+    pid_t pid[10];
     unsigned long total_pages;
     unsigned long valid_pages;
     unsigned long invalid_pages;
@@ -213,20 +213,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
     }
     else if (strncmp(proc_buffer, "RESET", 5) == 0)
     {
-        if (info != NULL)
-        {
-            // Libérer la mémoire allouée pour chaque tableau de PID
-            int i;
-            for (i = 0; i < num_processes; ++i)
-            {
-                kfree(info[i].pid);
-            }
-
-            // Libérer la mémoire allouée pour la structure info
-            kfree(info);
-            info = NULL;
-        }
-
         retrieve_process_info();
         detect_identical_pages();
         memset(proc_buffer, '\0', sizeof(proc_buffer));
@@ -280,28 +266,38 @@ static void retrieve_process_info(void)
     struct task_struct *task;
     struct mm_struct *mm;
     num_processes = 0;
+    // Libérer l'ancienne mémoire si nécessaire
+    if (info != NULL)
+    {
+        kfree(info);
+        info = NULL;
+    }
+
     // Parcourir la liste des processus
     for_each_process(task)
     {
         int i;
         int found = 0;
+        printk(KERN_INFO "Nom du processus: %s, PID: %d\n", task->comm, task->pid);
 
         // Vérifier si le nom du processus existe déjà dans la structure
         for (i = 0; i < num_processes; i++)
         {
             if (strcmp(task->comm, info[i].name) == 0)
             {
+                printk(KERN_INFO "POCESS EXIETE DEJA \n");
                 // Le nom du processus existe déjà, mettre à jour les valeurs
                 info[i].total_pages += task->mm->total_vm;
                 info[i].valid_pages += get_mm_rss(task->mm);
                 info[i].invalid_pages = info[i].total_pages - info[i].valid_pages;
 
                 // Ajouter le PID au tableau dynamique
-                info[i].pid = krealloc(info[i].pid, (info[i].identical_page_groups + 1) * sizeof(pid_t), GFP_KERNEL);
-                if (!info[i].pid)
-                {
-                    return;
-                }
+                //info[i].pid = krealloc(info[i].pid, (info[i].identical_page_groups + 2) * sizeof(pid_t), GFP_KERNEL);
+                // (!info[i].pid)
+                //{
+                //    printk(KERN_ERR "Erreur d'allocation de mémoire pour les PID\n");
+                //    return;
+                //}
                 info[i].pid[info[i].identical_page_groups + 1] = task->pid;
                 info[i].identical_page_groups++;
                 found = 1;
@@ -311,25 +307,35 @@ static void retrieve_process_info(void)
 
         if (!found)
         {
+            printk(KERN_INFO "PAS TROUVE \n");
             // Le nom du processus n'existe pas encore, ajouter une nouvelle entrée
-            if (!info)
+            if (num_processes == 0)
             {
                 printk(KERN_INFO "Allocation de mémoire pour la structure info\n");
                 info = kmalloc(sizeof(struct process_info), GFP_KERNEL);
             }
             else
             {
+                printk(KERN_INFO "Réalocation de mémoire pour la structure info\n");
                 info = krealloc(info, (num_processes + 1) * sizeof(struct process_info), GFP_KERNEL);
             }
+
+            if (!info)
+            {
+                printk(KERN_ERR "Erreur d'allocation de mémoire pour la structure info\n");
+                return;
+            }
+
             strncpy(info[num_processes].name, task->comm, sizeof(info[num_processes].name) - 1);
+            info[num_processes].name[sizeof(info[num_processes].name) - 1] = '\0'; // Assurez-vous de la terminaison
+            printk(KERN_INFO "Nom du processus copié\n");
 
             mm = task->mm;
             if (mm != NULL)
             {
                 info[num_processes].total_pages = mm->total_vm;
                 info[num_processes].valid_pages = get_mm_rss(mm);
-                info[num_processes].invalid_pages = info[i].total_pages - info[i].valid_pages;
-                // total_pages_used += info[num_processes].total_pages; // Ajouter au total des pages utilisées
+                info[num_processes].invalid_pages = info[num_processes].total_pages - info[num_processes].valid_pages;
             }
             else
             {
@@ -338,19 +344,21 @@ static void retrieve_process_info(void)
                 info[num_processes].invalid_pages = 0;
             }
 
-            info[num_processes].nb_group = 0;              // À implémenter si nécessaire
-            info[num_processes].identical_page_groups = 0; // À implémenter si nécessaire
+            info[num_processes].nb_group = 0;
+            info[num_processes].identical_page_groups = 0;
             info[num_processes].may_be_shared = 0;
-            info[num_processes].pid = kmalloc(sizeof(pid_t), GFP_KERNEL);
-            if (!info[num_processes].pid)
-            {
-                return;
-            }
+            //info[num_processes].pid = kmalloc(sizeof(pid_t), GFP_KERNEL);
+            //if (!info[num_processes].pid)
+            //{
+            //    printk(KERN_ERR "Erreur d'allocation de mémoire pour les PID\n");
+            //    return;
+            //}
             info[num_processes].pid[0] = task->pid;
             num_processes++;
         }
     }
 }
+
 struct page *get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr)
 {
     pgd_t *pgd;
