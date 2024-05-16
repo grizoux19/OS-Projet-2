@@ -314,16 +314,12 @@ static void retrieve_process_info(void)
             // Le nom du processus n'existe pas encore, ajouter une nouvelle entrée
             if (!info)
             {
+                printk(KERN_INFO "Allocation de mémoire pour la structure info\n");
                 info = kmalloc(sizeof(struct process_info), GFP_KERNEL);
             }
             else
             {
-                struct process_info *temp = krealloc(info, (num_processes + 1) * sizeof(struct process_info), GFP_KERNEL);
-                if (!temp)
-                {
-                    return;
-                }
-                info = temp;
+                info = krealloc(info, (num_processes + 1) * sizeof(struct process_info), GFP_KERNEL);
             }
             strncpy(info[num_processes].name, task->comm, sizeof(info[num_processes].name) - 1);
 
@@ -331,8 +327,8 @@ static void retrieve_process_info(void)
             if (mm != NULL)
             {
                 info[num_processes].total_pages = mm->total_vm;
-                info[i].valid_pages = get_mm_rss(mm);
-                info[i].invalid_pages = info[i].total_pages - info[i].valid_pages;
+                info[num_processes].valid_pages = get_mm_rss(mm);
+                info[num_processes].invalid_pages = info[i].total_pages - info[i].valid_pages;
                 // total_pages_used += info[num_processes].total_pages; // Ajouter au total des pages utilisées
             }
             else
@@ -446,8 +442,9 @@ out_unmap:
         kunmap(page2);
     kfree(buf1);
     kfree(buf2);
-
+    
     return result;
+    return 0;
 }
 
 int *list_page = NULL;
