@@ -49,6 +49,7 @@ static char proc_buffer[65536]; // Tampon pour stocker les données du fichier p
 int compare_pages(struct page *page1, struct page *page2);
 struct page *get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr);
 void compare_pages_within_process(struct mm_struct *mm, int index);
+unsigned long count_valid_pages(struct mm_struct *mm);
 
 void retrieve_processes_by_name(const int index, char *buffer, size_t buffer_size)
 {
@@ -261,6 +262,65 @@ static const struct file_operations proc_fops = {
     .read = read_proc,
 };
 
+unsigned long count_valid_pages(struct mm_struct *mm) {
+    struct vm_area_struct *vma;
+    unsigned long address;
+    unsigned long valid_pages = 0;
+    
+    // Obtenir le sémaphore de mémoire pour éviter les conditions de course
+    down_read(&mm->mmap_sem);
+
+    // Parcourir chaque VMA
+    for (vma = mm->mmap; vma; vma = vma->vm_next) {
+        pgd_t *pgd;
+        p4d_t *p4d;
+        pud_t *pud;
+        pmd_t *pmd;
+        pte_t *pte;
+        spinlock_t *ptl;
+        
+        // Parcourir les adresses de page dans cette VMA
+        for (address = vma->vm_start; address < vma->vm_end; address += PAGE_SIZE) {
+            pgd = pgd_offset(mm, address);
+            if (pgd_none(*pgd) || pgd_bad(*pgd))
+                continue;
+
+            p4d = p4d_offset(pgd, address);
+            if (p4d_none(*p4d) || p4d_bad(*p4d))
+                continue;
+
+            pud = pud_offset(p4d, address);
+            if (pud_none(*pud) || pud_bad(*pud))
+                continue;
+
+            pmd = pmd_offset(pud, address);
+            if (pmd_none(*pmd) || pmd_bad(*pmd))
+                continue;
+
+            if (pmd_trans_huge(*pmd)) {
+                if (pmd_present(*pmd))
+                    valid_pages++;
+                continue;
+            }
+
+            pte = pte_offset_map_lock(mm, pmd, address, &ptl);
+            if (!pte)
+                continue;
+
+            if (pte_present(*pte))
+                valid_pages++;
+
+            pte_unmap_unlock(pte, ptl);
+        }
+    }
+
+    // Libérer le sémaphore de mémoire
+    up_read(&mm->mmap_sem);
+
+    return valid_pages;
+}
+
+
 static void retrieve_process_info(void)
 {
     struct task_struct *task;
@@ -285,10 +345,9 @@ static void retrieve_process_info(void)
         {
             if (strcmp(task->comm, info[i].name) == 0)
             {
-                printk(KERN_INFO "POCESS EXIETE DEJA \n");
                 // Le nom du processus existe déjà, mettre à jour les valeurs
                 info[i].total_pages += task->mm->total_vm;
-                info[i].valid_pages += get_mm_rss(task->mm);
+                info[i].valid_pages += count_valid_pages(task->mm);
                 info[i].invalid_pages = info[i].total_pages - info[i].valid_pages;
 
                 // Ajouter le PID au tableau dynamique
@@ -334,7 +393,7 @@ static void retrieve_process_info(void)
             if (mm != NULL)
             {
                 info[num_processes].total_pages = mm->total_vm;
-                info[num_processes].valid_pages = get_mm_rss(mm);
+                info[num_processes].valid_pages = count_valid_pages(task->mm);
                 info[num_processes].invalid_pages = info[num_processes].total_pages - info[num_processes].valid_pages;
             }
             else
@@ -400,6 +459,8 @@ struct page *get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr)
 
 int compare_pages(struct page *page1, struct page *page2)
 {
+    return page_to_pfn(page1) == page_to_pfn(page2);
+
     char *buf1, *buf2;
     void *mapped_page1, *mapped_page2;
     int result = 0;
@@ -497,12 +558,6 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
 
                                     info[index].may_be_shared = info[index].may_be_shared + 2;
                                     info[index].nb_group = info[index].nb_group + 1;
-                                }
-                                else
-                                {
-                                    // Gestion de l'erreur de réallocation de mémoire
-
-                                    // Tu peux mettre en place une stratégie de gestion des erreurs appropriée ici
                                 }
                             }
                             else
