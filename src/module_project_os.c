@@ -21,6 +21,9 @@
 #include <linux/mm_types.h>
 #include <asm/page.h>
 #include <linux/hashtable.h>
+#include <linux/crypto.h>
+#include <crypto/hash.h>
+#include <crypto/sha.h>
 
 #define PROC_NAME "memory_info"
 #define MAX_PROCESS_NAME_LEN 256
@@ -322,64 +325,6 @@ static const struct file_operations proc_fops = {
     .read = read_proc,
 };
 
-unsigned long count_valid_pages(struct mm_struct *mm) {
-    struct vm_area_struct *vma;
-    unsigned long address;
-    unsigned long valid_pages = 0;
-    
-    // Obtenir le sémaphore de mémoire pour éviter les conditions de course
-    down_read(&mm->mmap_sem);
-
-    // Parcourir chaque VMA
-    for (vma = mm->mmap; vma; vma = vma->vm_next) {
-        pgd_t *pgd;
-        p4d_t *p4d;
-        pud_t *pud;
-        pmd_t *pmd;
-        pte_t *pte;
-        spinlock_t *ptl;
-        
-        // Parcourir les adresses de page dans cette VMA
-        for (address = vma->vm_start; address < vma->vm_end; address += PAGE_SIZE) {
-            pgd = pgd_offset(mm, address);
-            if (pgd_none(*pgd) || pgd_bad(*pgd))
-                continue;
-
-            p4d = p4d_offset(pgd, address);
-            if (p4d_none(*p4d) || p4d_bad(*p4d))
-                continue;
-
-            pud = pud_offset(p4d, address);
-            if (pud_none(*pud) || pud_bad(*pud))
-                continue;
-
-            pmd = pmd_offset(pud, address);
-            if (pmd_none(*pmd) || pmd_bad(*pmd))
-                continue;
-
-            if (pmd_trans_huge(*pmd)) {
-                if (pmd_present(*pmd))
-                    valid_pages++;
-                continue;
-            }
-
-            pte = pte_offset_map_lock(mm, pmd, address, &ptl);
-            if (!pte)
-                continue;
-
-            if (pte_present(*pte))
-                valid_pages++;
-
-            pte_unmap_unlock(pte, ptl);
-        }
-    }
-
-    // Libérer le sémaphore de mémoire
-    up_read(&mm->mmap_sem);
-
-    return valid_pages;
-}
-
 
 static void retrieve_process_info(void)
 {
@@ -579,15 +524,42 @@ int list_length = 0;
 bool find_list = false;
 DEFINE_HASHTABLE(page_table, 16);
 
+
+
 struct page_node {
     struct page *page;
     struct hlist_node hnode;
+    char hash[SHA1_DIGEST_SIZE];  // Store the hash of the page data
 };
 
 void compare_pages_within_process(struct mm_struct *mm, int index)
 {
     struct vm_area_struct *vma1;
-    int k;
+    struct shash_desc *shash;
+    struct crypto_shash *alg;
+
+    char *hash = kmalloc(SHA1_DIGEST_SIZE, GFP_KERNEL);
+    if (!hash) {
+        printk(KERN_ERR "Failed to allocate memory for hash\n");
+        return;  // or return; depending on your logic
+    }
+
+
+    alg = crypto_alloc_shash("sha1", 0, 0);
+    if (IS_ERR(alg)) {
+        printk(KERN_ERR "Failed to allocate sha1 algorithm\n");
+        return;
+    }
+
+    shash = kmalloc(sizeof(*shash) + crypto_shash_descsize(alg), GFP_KERNEL);
+    if (!shash) {
+        printk(KERN_ERR "Failed to allocate shash\n");
+        crypto_free_shash(alg);
+        return;
+    }
+
+    shash->tfm = alg;
+    shash->flags = 0;
 
     for (vma1 = mm->mmap; vma1; vma1 = vma1->vm_next)
     {
@@ -601,37 +573,49 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                     continue;
                 }
 
-                unsigned long ID = page_to_pfn(page1);
-                if(ID) {
-                    printk(KERN_INFO "Je print l'ID %lu pour le PID : %d\n", ID, info[index].pid[0]);
+                void *data = kmap(page1);
+                if (!data) {
+                    printk(KERN_ERR "Failed to map page data\n");
+                    continue;
+                }
 
-                    struct page_node *pnode;
-                    bool find_list = false;
-                    hash_for_each_possible(page_table, pnode, hnode, ID) {
-                        if (page_to_pfn(pnode->page) == ID) {
-                            printk(KERN_INFO "ID identique");
-                            info[index].may_be_shared++;
-                            find_list = true;
-                            break;
-                        }
-                    }
+                if (crypto_shash_digest(shash, data, PAGE_SIZE, hash) != 0) {
+                    printk(KERN_ERR "Failed to compute hash of page data\n");
+                    kunmap(page1);
+                    continue;
+                }
 
-                    if (!find_list) {
-                        pnode = kmalloc(sizeof(*pnode), GFP_KERNEL);
-                        if (!pnode) {
-                            printk(KERN_ERR "Failed to allocate memory for page_node\n");
-                            return;
-                        }
-                        pnode->page = page1;
-                        hash_add(page_table, &pnode->hnode, ID);
-                        info[index].nb_group++;
+                kunmap(page1);
+
+                struct page_node *pnode;
+                bool find_list = false;
+                hash_for_each_possible(page_table, pnode, hnode, *(unsigned long *)hash) {
+                    if (memcmp(pnode->hash, hash, SHA1_DIGEST_SIZE) == 0) {
+                        printk(KERN_INFO "Identical page found");
+                        find_list = true;
                         info[index].may_be_shared++;
-                        printk(KERN_INFO "Je print list_length %d\n", list_length);
+                        break;
                     }
+                }
+
+                if (!find_list) {
+                    pnode = kmalloc(sizeof(*pnode), GFP_KERNEL);
+                    if (!pnode) {
+                        printk(KERN_ERR "Failed to allocate memory for page_node\n");
+                        return;
+                    }
+                    pnode->page = page1;
+                    memcpy(pnode->hash, hash, SHA1_DIGEST_SIZE);
+                    hash_add(page_table, &pnode->hnode, *(unsigned long *)hash);
+                    info[index].nb_group++;
+                    info[index].may_be_shared++;
                 }
             }
         }
     }
+
+    kfree(shash);
+    crypto_free_shash(alg);
 }
 
 void detect_identical_pages()
