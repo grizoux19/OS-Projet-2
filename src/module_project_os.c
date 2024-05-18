@@ -553,6 +553,7 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                         if (!pnode->flag)
                         {
                             pnode->flag = true;
+                            info[index].may_be_shared++;
                             info[index].nb_group++;
                         }
                         break;
@@ -571,7 +572,6 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                     pnode->flag = false;
                     memcpy(pnode->hash, hash, SHA1_DIGEST_SIZE);
                     hash_add(page_table, &pnode->hnode, *(unsigned long *)hash);
-                    info[index].nb_group++;
                 }
                 find_list = false;
             }
