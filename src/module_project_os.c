@@ -44,7 +44,7 @@ struct process_info
     unsigned long nb_group;
     unsigned long identical_page_groups;
     unsigned long may_be_shared;
-    char name[255];
+    char name[16];
 };
 
 static void retrieve_process_info(void);
