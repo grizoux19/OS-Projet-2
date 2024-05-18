@@ -471,6 +471,7 @@ unsigned long list_page[15000];
 int list_length = 0;
 bool find_list = false;
 DEFINE_HASHTABLE(page_table, 16);
+DEFINE_HASHTABLE(page_table2, 16);
 struct shash_desc *shash;
 struct crypto_shash *alg;
 char *hash;
@@ -482,9 +483,20 @@ struct page_node
     char hash[SHA1_DIGEST_SIZE]; // Store the hash of the page data
 };
 
+struct page_flag
+{
+    struct hlist_node hnode;
+    unsigned long hash_key;
+    bool flag;
+};
+
 void compare_pages_within_process(struct mm_struct *mm, int index)
 {
     struct vm_area_struct *vma1;
+    void *data;
+    struct page_node *pnode;
+    struct page_flag *pflag;
+    bool find_list = false;
 
     if (!hash)
     {
@@ -524,7 +536,7 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                     continue;
                 }
 
-                void *data = kmap(page1);
+                data = kmap(page1);
                 if (!data)
                 {
                     printk(KERN_ERR "Failed to map page data\n");
@@ -539,9 +551,6 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                 }
 
                 kunmap(page1);
-
-                struct page_node *pnode;
-                bool find_list = false;
                 hash_for_each_possible(page_table, pnode, hnode, *(unsigned long *)hash)
                 {
                     if (memcmp(pnode->hash, hash, SHA1_DIGEST_SIZE) == 0)
@@ -549,6 +558,18 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                         printk(KERN_INFO "Identical page found");
                         find_list = true;
                         info[index].may_be_shared++;
+                        hash_for_each_possible(page_table2, pflag, hnode, *(unsigned long *)hash)
+                        {
+                            if (pflag->hash_key == *(unsigned long *)hash)
+                            {
+                                if (pflag->flag == false)
+                                {
+                                    info[index].nb_group++;
+                                }
+                                pflag->flag = true;
+                                break;
+                            }
+                        }
                         break;
                     }
                 }
@@ -564,9 +585,19 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                     pnode->page = page1;
                     memcpy(pnode->hash, hash, SHA1_DIGEST_SIZE);
                     hash_add(page_table, &pnode->hnode, *(unsigned long *)hash);
+
+                    pflag = kmalloc(sizeof(*pflag), GFP_KERNEL);
+                    if (!pflag)
+                    {
+                        printk(KERN_ERR "Failed to allocate memory for page_flag\n");
+                        return;
+                    }
+                    pflag->hash_key = *(unsigned long *)hash;
+                    pflag->flag = false;
+                    hash_add(page_table2, &pflag->hnode, *(unsigned long *)hash);
                     info[index].nb_group++;
-                    info[index].may_be_shared++;
                 }
+                find_list = false;
             }
         }
     }
@@ -574,15 +605,12 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
 
 void detect_identical_pages()
 {
-    int i, j, k;
+    int i, j;
 
     for (i = 0; i < num_processes; i++)
     {
         struct mm_struct *mm1 = NULL;
-        struct mm_struct *mm2 = NULL;
-        struct vm_area_struct *vma1, *vma2;
         struct task_struct *task;
-        int result = 0;
 
         // list_page = NULL;
         list_length = 0;
