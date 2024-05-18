@@ -469,7 +469,6 @@ struct page *get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr)
 
 unsigned long list_page[15000];
 int list_length = 0;
-bool find_list = false;
 DEFINE_HASHTABLE(page_table, 16);
 struct shash_desc *shash;
 struct crypto_shash *alg;
@@ -483,12 +482,26 @@ struct page_node
     bool flag;
 };
 
+void free_page_table(void)
+{
+    struct page_node *pnode;
+    struct hlist_node *tmp;
+    int bkt;
+
+    hash_for_each_safe(page_table, bkt, tmp, pnode, hnode)
+    {
+        hash_del(&pnode->hnode); // Supprime l'entrée de la table de hachage
+        kfree(pnode); // Libère la mémoire allouée pour pnode
+    }
+}
+
 void compare_pages_within_process(struct mm_struct *mm, int index)
 {
     struct vm_area_struct *vma1;
     void *data;
-    struct page_node *pnode;
+    struct page_node *pnode = NULL;
     bool find_list = false;
+    
 
     if (!hash)
     {
@@ -521,10 +534,11 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
             unsigned long addr;
             for (addr = vma1->vm_start; addr < vma1->vm_end; addr += PAGE_SIZE)
             {
+                pnode = NULL;
                 struct page *page1 = get_page_by_vaddr(mm, addr);
                 if (!page1)
                 {
-                    printk(KERN_ERR "Impossible de récupérer la page pour l'adresse virtuelle\n");
+                    //printk(KERN_ERR "Impossible de récupérer la page pour l'adresse virtuelle\n");
                     continue;
                 }
 
@@ -547,14 +561,23 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                 {
                     if (memcmp(pnode->hash, hash, SHA1_DIGEST_SIZE) == 0)
                     {
-                        printk(KERN_INFO "Identical page found");
+                        if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
+                            printk(KERN_ERR "C'est le process et je print le flag : %d\n", pnode->flag);
+                        //printk(KERN_INFO "Identical page found");
                         find_list = true;
                         info[index].may_be_shared++;
                         if (!pnode->flag)
                         {
+                            if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
+                                printk(KERN_ERR "Je suis dans le flag et je le print le flag : %d\n", pnode->flag);
                             pnode->flag = true;
+                            if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
+                                printk(KERN_ERR "Je print avant  : %d, : %d\n", info[index].may_be_shared,info[index].nb_group );
                             info[index].may_be_shared++;
                             info[index].nb_group++;
+                            if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
+                                printk(KERN_ERR "Je print avant  : %d, : %d\n", info[index].may_be_shared,info[index].nb_group );
+
                         }
                         break;
                     }
@@ -570,6 +593,8 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                     }
                     pnode->page = page1;
                     pnode->flag = false;
+                    if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
+                                printk(KERN_ERR "Il n'est pas trouvé et je le print je le print le flag : %d\n", pnode->flag);
                     memcpy(pnode->hash, hash, SHA1_DIGEST_SIZE);
                     hash_add(page_table, &pnode->hnode, *(unsigned long *)hash);
                 }
@@ -591,7 +616,6 @@ void detect_identical_pages()
         // list_page = NULL;
         list_length = 0;
 
-        find_list = false;
         hash = kmalloc(SHA1_DIGEST_SIZE, GFP_KERNEL);
 
         /*list_page = kmalloc(sizeof(unsigned long), GFP_KERNEL);
@@ -619,8 +643,11 @@ void detect_identical_pages()
             }
             printk(KERN_INFO "Je suis à la fin du for \n");
         }
+        free_page_table();
         kfree(shash);
         crypto_free_shash(alg);
+        kfree(hash);
+        
     }
 }
 
