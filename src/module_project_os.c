@@ -37,7 +37,7 @@ static int num_processes = 0;
 
 struct process_info
 {
-    pid_t pid[10];
+    pid_t pid[20];
     unsigned long total_pages;
     unsigned long valid_pages;
     unsigned long invalid_pages;
@@ -162,13 +162,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
         return -EFAULT;
     }
 
-    // Ajoute un caractère nul à la fin des données pour s'assurer qu'elles sont bien terminées
-    // proc_buffer[count] = '\0';
-
-    // Affiche les données du buffer dans les logs du noyau
-
-    // Si les données écrites sont "echo" suivi de "Bonjour", écrivez "Bonjour" dans le fichier proc
-
     if (strncmp(proc_buffer, "FILTER", 6) == 0)
     {
 
@@ -214,8 +207,6 @@ static ssize_t write_proc(struct file *file, const char __user *buffer, size_t c
         {
             snprintf(proc_buffer, sizeof(proc_buffer), "[ERROR]: No such process\n");
         }
-
-        // Renvoie la longueur de la chaîne "Bonjour" comme le nombre d'octets écrit
     }
     else if (strncmp(proc_buffer, "DEL", 3) == 0)
     {
@@ -345,7 +336,6 @@ static void retrieve_process_info(void)
     {
         int i;
         int found = 0;
-        printk(KERN_INFO "Nom du processus: %s, PID: %d\n", task->comm, task->pid);
 
         // Vérifier si le nom du processus existe déjà dans la structure
         for (i = 0; i < num_processes; i++)
@@ -358,7 +348,7 @@ static void retrieve_process_info(void)
                 info[i].invalid_pages = info[i].total_pages - info[i].valid_pages;
 
                 // Ajouter le PID au tableau dynamique
-                // info[i].pid = krealloc(info[i].pid, (info[i].identical_page_groups + 2) * sizeof(pid_t), GFP_KERNEL);
+                // info[i].pid = krealloc(info[i].pid, (info[i].identical_page_groups + 1) * sizeof(pid_t), GFP_KERNEL);
                 // (!info[i].pid)
                 //{
                 //    printk(KERN_ERR "Erreur d'allocation de mémoire pour les PID\n");
@@ -375,7 +365,6 @@ static void retrieve_process_info(void)
         {
             if (task->mm)
             {
-                printk(KERN_INFO "PAS TROUVE \n");
                 // Le nom du processus n'existe pas encore, ajouter une nouvelle entrée
                 if (num_processes == 0)
                 {
@@ -396,7 +385,6 @@ static void retrieve_process_info(void)
 
                 strncpy(info[num_processes].name, task->comm, sizeof(info[num_processes].name) - 1);
                 info[num_processes].name[sizeof(info[num_processes].name) - 1] = '\0'; // Assurez-vous de la terminaison
-                printk(KERN_INFO "Nom du processus copié\n");
 
                 mm = task->mm;
                 if (mm != NULL)
@@ -467,8 +455,6 @@ struct page *get_page_by_vaddr(struct mm_struct *mm, unsigned long vaddr)
     return page;
 }
 
-unsigned long list_page[15000];
-int list_length = 0;
 DEFINE_HASHTABLE(page_table, 16);
 struct shash_desc *shash;
 struct crypto_shash *alg;
@@ -534,11 +520,9 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
             unsigned long addr;
             for (addr = vma1->vm_start; addr < vma1->vm_end; addr += PAGE_SIZE)
             {
-                pnode = NULL;
                 struct page *page1 = get_page_by_vaddr(mm, addr);
                 if (!page1)
                 {
-                    //printk(KERN_ERR "Impossible de récupérer la page pour l'adresse virtuelle\n");
                     continue;
                 }
 
@@ -561,23 +545,13 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                 {
                     if (memcmp(pnode->hash, hash, SHA1_DIGEST_SIZE) == 0)
                     {
-                        if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
-                            printk(KERN_ERR "C'est le process et je print le flag : %d\n", pnode->flag);
-                        //printk(KERN_INFO "Identical page found");
                         find_list = true;
                         info[index].may_be_shared++;
                         if (!pnode->flag)
                         {
-                            if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
-                                printk(KERN_ERR "Je suis dans le flag et je le print le flag : %d\n", pnode->flag);
                             pnode->flag = true;
-                            if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
-                                printk(KERN_ERR "Je print avant  : %d, : %d\n", info[index].may_be_shared,info[index].nb_group );
                             info[index].may_be_shared++;
                             info[index].nb_group++;
-                            if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
-                                printk(KERN_ERR "Je print avant  : %d, : %d\n", info[index].may_be_shared,info[index].nb_group );
-
                         }
                         break;
                     }
@@ -593,8 +567,7 @@ void compare_pages_within_process(struct mm_struct *mm, int index)
                     }
                     pnode->page = page1;
                     pnode->flag = false;
-                    if(memcmp(info[index].name, "systemd-timesyn", 14) == 0)
-                                printk(KERN_ERR "Il n'est pas trouvé et je le print je le print le flag : %d\n", pnode->flag);
+                    
                     memcpy(pnode->hash, hash, SHA1_DIGEST_SIZE);
                     hash_add(page_table, &pnode->hnode, *(unsigned long *)hash);
                 }
@@ -613,22 +586,10 @@ void detect_identical_pages()
         struct mm_struct *mm1 = NULL;
         struct task_struct *task;
 
-        // list_page = NULL;
-        list_length = 0;
-
         hash = kmalloc(SHA1_DIGEST_SIZE, GFP_KERNEL);
 
-        /*list_page = kmalloc(sizeof(unsigned long), GFP_KERNEL);
-        if (!list_page)
-        {
-            // Gestion de l'erreur d'allocation de mémoire
-            return;
-        }*/
-        // list_length++;
         for (j = 0; j <= info[i].identical_page_groups; j++)
         {
-            printk(KERN_INFO "Je suis au début du for \n");
-            printk(KERN_INFO "Je print le PID %d\n", info[i].pid[j]);
             task = pid_task(find_vpid(info[i].pid[j]), PIDTYPE_PID); // On récupère le premier PID
             if (task)
             {
@@ -636,12 +597,10 @@ void detect_identical_pages()
                 if (mm1)
                 {
                     compare_pages_within_process(mm1, i);
-                    printk(KERN_INFO "Je passe aus process suivant");
 
                     mmput(mm1);
                 }
             }
-            printk(KERN_INFO "Je suis à la fin du for \n");
         }
         free_page_table();
         kfree(shash);
